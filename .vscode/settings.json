@@ -1,0 +1,51 @@
+{
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": true,
+            "source.organizeImports.ruff": true,
+        },
+        "editor.formatOnType": true,
+    },
+    "notebook.formatOnSave.enabled": false,
+    "notebook.codeActionsOnSave": {
+        "source.fixAll.ruff": false,
+        "source.organizeImports.ruff": true,
+    },
+    "ruff.lint.args": [
+        "--ignore=E402,F541",
+        "--line-length=120",
+        "--select=E,W,F,I,UP",
+        "--respect-gitignore"
+    ],
+    "black-formatter.args": [
+        "--line-length=120",
+    ],
+    "python.analysis.packageIndexDepths": [
+        {
+            "name": "sklearn",
+            "depth": 2
+        },
+        {
+            "name": "matplotlib",
+            "depth": 2
+        },
+        {
+            "name": "scipy",
+            "depth": 2
+        },
+        {
+            "name": "django",
+            "depth": 2
+        },
+        {
+            "name": "flask",
+            "depth": 2
+        },
+        {
+            "name": "fastapi",
+            "depth": 2
+        }
+    ]
+}

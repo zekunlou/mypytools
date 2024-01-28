@@ -1,0 +1,7 @@
+.vscode/setting.json
+assets/
+mypytools.egg-info/
+*/__pycache__/
+*.py[cod]
+
+

@@ -1,6 +1,23 @@
 # README
 
 This repo is all about reusable python code blocks by Zekun Lou.
+You can find more infomation in file `pyproject.toml`.
+
+**WARNING**: this repo is experimental, please do mind the potential module version conflicts!
+
+
+## Installation
+
+To install the package, please download the repo and install by `pip`
+```bash
+python -m pip install -e .
+```
+
+
+## Developing guidelines
+
+- Minimal dependencies
+
 
 ## Tips
 
