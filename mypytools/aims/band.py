@@ -487,6 +487,54 @@ def plot_bands(
     return ax
 
 
+
+def get_aims_kpaths(lattice:str, path_symbols:str, kpts_spacing:float=0.01):
+    """
+    Generate kpaths for aims
+
+    Args:
+        lattice (str): lattice type, e.g. 'sc', 'bcc', 'fcc', 'hexagonal'
+        path_symbols (str): symbols of kpoints, e.g. 'GXLWKG', 'KGMKHALH'
+        kpts_spacing (float, optional): kpoints spacing. Defaults to 0.01.
+
+    Return:
+        List[Tuple[kpos_x, kpos_y, kpos_z, kpos_x, kpos_y, kpos_z, n_points, symbol_start, symbol_end]]
+    """
+    from ase.dft.kpoints import sc_special_points as special_points
+    points = special_points[lattice]
+    assert all([s in points.keys() for s in path_symbols])
+
+    aims_kpaths:List[Tuple[int, int, int, int, int, int, int, str, str]] = []
+    kpts_spacing = 0.01
+
+    for i in range(len(path_symbols) - 1):
+        start_symbol, end_symbol = path_symbols[i], path_symbols[i + 1]
+        start_kpos, end_kpos = points[start_symbol], points[end_symbol]
+        path_length = ((numpy.array(start_kpos) - numpy.array(end_kpos)) ** 2).sum() ** 0.5
+        kpts_cnt = int(path_length / kpts_spacing) + 1
+        aims_kpaths.append((*start_kpos, *end_kpos, kpts_cnt, start_symbol, end_symbol))
+
+    return aims_kpaths
+
+def aims_kpaths2str(aims_kpaths:List) -> str:
+    """
+    format: (following aims convention)
+    output band k_xstart k_ystart k_zstart k_xend k_yend k_zend n_points symbol_start symbol_end
+    """
+    s = [
+        f"output band  {start_x:.5f} {start_y:.5f} {start_z:.5f}  {end_x:.5f} {end_y:.5f} {end_z:.5f} {n_pts:4d} {start_symb:s} {end_symb:s}"  # NOQA
+        for start_x, start_y, start_z, end_x, end_y, end_z, n_pts, start_symb, end_symb in aims_kpaths
+    ]
+    return "\n".join(s)
+
+def gen_aims_kpaths_str(lattice:str, path_symbols:str, kpts_spacing:float=0.01) -> str:
+    __doc__ = get_aims_kpaths.__doc__ + aims_kpaths2str.__doc__  # NOQA
+
+    aims_kpaths = get_aims_kpaths(lattice, path_symbols, kpts_spacing)
+    return aims_kpaths2str(aims_kpaths)
+
+
+
 if __name__ == "__main__":
     band_info = get_band_info(
         "/u/zklou/projects/salted/ZrS2/240118/optim_baseline/aims_predicted_data/1"
@@ -513,3 +561,5 @@ if __name__ == "__main__":
     )
     plt.ylim(-0.25, 0.25)
     plt.show()
+
+    print(gen_aims_kpaths_str("hexagonal", "KGMKHALH"))
