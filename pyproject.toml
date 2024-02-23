@@ -1,8 +1,13 @@
+[build-system]
+requires = ["setuptools>=40.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mypytools"
 version = "0.0.1"
 description = "A collection of tools for python"
 readme = {file = "README.md", content-type = "text/markdown"}
+urls = {Repository = "https://github.com/nqhq-lou/mypytools"}
 license = {text = "BSD-3-Clause"}
 authors = [{name = "Zekun Lou", email = "zekunlou+mypytools@gmail.com"}]
 keywords = ["python", "tools", "mypytools", "personal", "dangerous"]
@@ -16,12 +21,7 @@ dependencies = [
     "tomli>=1.0.0",
     "shapely>=2.0.3",
 ]
-
-[project.optional-dependencies]
-ase = ["ase>=3.22.1"]
+optional-dependencies = {"ase" = ["ase>=3.22.1"]}
 
 [project.scripts]
 mpt_hello = "mypytools.hello:say_hello"
-
-[project.urls]
-Repository = "https://github.com/nqhq-lou/mypytools"
