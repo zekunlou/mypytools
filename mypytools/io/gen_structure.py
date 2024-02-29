@@ -1,5 +1,5 @@
 import logging
-from typing import Literal, Union
+from typing import Literal, Union, Tuple
 
 import numpy
 from ase.atoms import Atoms
@@ -13,7 +13,7 @@ def gen_sliding_bilayer(
     n1: int,
     n2: int,
     z_dist: float,
-    conj: Union[Literal["AA"], Literal["AB"]],
+    conj: Union[Literal["AA"], Literal["AB"], Literal["AA'"]],
     shake_upper_layer_z: Union[None, float] = None,
     slide_lower_layer_xy: Union[None, float] = None,
     shake_all_atoms: Union[None, float] = None,
@@ -61,7 +61,7 @@ def gen_sliding_bilayer(
         numpy.random.seed(seed)
     """make supercell"""
     cell_sup = make_supercell(cell_prim, [[n1, 0, 0], [0, n2, 0], [0, 0, 1]])
-    cell_sup.cell[2, 2] = 6 * z_dist
+    cell_sup.cell[2, 2] = 6 * z_dist if 6 * z_dist > 100 else 100
     layer_lower = cell_sup.copy()
     layer_upper = cell_sup.copy()
     """move upper layer higher"""
@@ -76,12 +76,16 @@ def gen_sliding_bilayer(
         assert isinstance(slide_lower_layer_xy, float)
         glide_vec = numpy.sum(cell_prim.get_cell()[:2] * slide_lower_layer_xy, axis=0)
         layer_lower.positions += glide_vec.reshape(1, 3)
-    """deal with conj"""
-    if conj == "AB":  # invert upper layer
+    """deal with conj, operate on upper layer only"""
+    if conj == "AA":  # do nothing
+        pass
+    elif conj == "AB":  # z-inversion
         layer_upper_z_mean = numpy.mean(layer_upper.positions[:, 2])
         layer_upper.positions[:, 2] = 2 * layer_upper_z_mean - layer_upper.positions[:, 2]
-    elif conj == "AA":  # do nothing
-        pass
+    elif conj == "AA'":  # xy-parity, and move back to the original cell
+        layer_upper_positions = -layer_upper.positions[:, :2]
+        layer_upper_positions += n1 * cell_prim.get_cell()[0, :2] + n2 * cell_prim.get_cell()[1, :2]
+        layer_upper.positions[:, :2] = layer_upper_positions
     else:
         raise ValueError(f"conj {conj} not supported")
     """shake upper layer z coordinate, only upper layer"""
@@ -465,7 +469,7 @@ class SuplatHexagon2D:
         )
 
     @property
-    def sublattice_vectors(self) -> tuple[numpy.ndarray, numpy.ndarray]:
+    def sublattice_vectors(self) -> Tuple[numpy.ndarray, numpy.ndarray]:
         """Return the sublattice vectors of the superlattice,
         shape (nth_sublattice, xy) and two of them (unrotated, rotated)"""
         return (self.sublat_lower, self.sublat_upper)

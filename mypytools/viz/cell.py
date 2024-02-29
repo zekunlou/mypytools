@@ -30,6 +30,8 @@ def visualize_cell_2d(
     coords: numpy.ndarray = geom.get_positions()  # shape (natoms, xyz)
     cell: numpy.ndarray = geom.get_cell()  # shape (lat_vec, xyz)
     zmax, zmin = coords[:, 2].max(), coords[:, 2].min()
+    if abs(zmax - zmin) < 1e-3:
+        zmin = -(zmax + 1)
 
     def opacity(z: float):
         """larger z, larger opacity"""
