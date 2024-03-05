@@ -19,9 +19,11 @@ dependencies = [
     "p_tqdm>=1.4.0",
     "pytest>=7.0.0",
     "tomli>=1.0.0",
-    "shapely>=2.0.3",
 ]
-optional-dependencies = {"ase" = ["ase>=3.22.1"]}
+optional-dependencies = {
+    "ase" = ["ase>=3.22.1"],
+    "shapely" = ["shapely>=2.0.3"],
+}
 
 [project.scripts]
 mpt_hello = "mypytools.hello:say_hello"
