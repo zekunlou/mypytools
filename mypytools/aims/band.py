@@ -504,6 +504,10 @@ def get_aims_kpaths(lattice:str, path_symbols:str, kpts_spacing:float=0.01):
     points = special_points[lattice]
     assert all([s in points.keys() for s in path_symbols])
 
+    if lattice == "hexagonal":
+        points['H'][:2] = [0.6666666666666667, 0.3333333333333333,]
+        points['K'][:2] = [0.6666666666666667, 0.3333333333333333,]
+
     aims_kpaths:List[Tuple[int, int, int, int, int, int, int, str, str]] = []
     kpts_spacing = 0.01
 
