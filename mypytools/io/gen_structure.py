@@ -546,8 +546,8 @@ class SuplatHexagon2D:
             kwargs["alpha"] = 0.5
         ax.plot(*numpy.moveaxis(suplat_lines, [0, 1, 2], [2, 1, 0]), **kwargs, zorder=2.1)
 
-        ax.scatter(*self.sublat_lower.T, label="untwisted", s=40, zorder=2.2)
-        ax.scatter(*self.sublat_upper.T, label="twisted", s=20, zorder=2.3)
+        ax.scatter(*self.sublat_lower.T, label="layer 1", s=4, zorder=2.2)
+        ax.scatter(*self.sublat_upper.T, label="layer 2", s=2, zorder=2.3)
         ax.set_title(f"Moire angle: {self.moire_angle:.3f} rad = {self.moire_angle * 180 / numpy.pi:.3f} deg")
 
         ax.set_aspect("equal")
