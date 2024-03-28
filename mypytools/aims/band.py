@@ -277,7 +277,7 @@ def plot_bands(
     linestyles: List[str] = None,
     plt_kwargs: Union[Dict, List[Dict]] = None,
     first_nkpaths: int = None,
-    shift_method: Union[None, str] = "fullfill_valance_top",
+    shift_method: Union[None, str] = "fullfill_valence_top",
     emin: float = None,
     emax: float = None,
     ax=None,
@@ -295,7 +295,7 @@ def plot_bands(
         plt_kwargs (Union[Dict, List[Dict]], optional): Additional keyword arguments for the plot function. \
             Can be a single dictionary or a list of dictionaries. Defaults to None.
         first_nkpaths (int, optional): The number of k-paths to plot. Defaults to None.
-        shift_method (Union[None, str], optional): The method to shift the bands. Defaults to "fullfill_valance_top".
+        shift_method (Union[None, str], optional): The method to shift the bands. Defaults to "fullfill_valence_top".
         emin (float, optional): The minimum energy value to plot. Defaults to None.
         emax (float, optional): The maximum energy value to plot. Defaults to None.
         ax (optional): The matplotlib axes object to plot on. Defaults to None.
@@ -348,7 +348,8 @@ def plot_bands(
             raise ValueError(f"invalid type for kwarg plt_kwargs: {type(plt_kwargs)}")
     assert shift_method in [
         None,
-        "fullfill_valance_top",
+        "fullfill_valence_top",
+        "fullfill_valence_gamma"
     ]
     if emin is None:
         assert emax is None, ValueError(
@@ -418,7 +419,7 @@ def plot_bands(
 
         if shift_method is None:
             shift = 0.0
-        elif shift_method == "fullfill_valance_top":
+        elif shift_method == "fullfill_valence_top":
             """find the valence top"""
             log("{band_data_idx=}, finding valence top, for RESTRICTED case only!")
             fullfill_idx = find_fullfill_valance_band_idx(
@@ -426,6 +427,21 @@ def plot_bands(
             )
             shift = -numpy.max(band_data_full["band_energies"][:, fullfill_idx])
             log(f"{shift=}")
+        elif shift_method == "fullfill_valence_gamma":
+            """find the valence gamma value"""
+            log("{band_data_idx=}, finding valence gamma, for RESTRICTED case only!")
+            fullfill_idx = find_fullfill_valance_band_idx(
+                band_data_full["band_occupations"], band_info["nelec"]
+            )
+            # find the gamma point index
+            cnt_points = 0
+            for _, _, _, npoint, startname, endname in band_info["band_segments"]:
+                if startname.lower() in ("gamma", "g"):
+                    break
+                cnt_points += npoint
+                if endname.lower() in ("gamma", "g"):
+                    break
+            shift = -band_data_full["band_energies"][cnt_points - 1, fullfill_idx]
         else:
             raise ValueError(f"invalid shift_method: {shift_method}")
 
