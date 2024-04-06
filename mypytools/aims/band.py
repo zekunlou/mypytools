@@ -270,6 +270,11 @@ def find_fullfill_valance_band_idx(band_occupations: numpy.ndarray, nelec: int) 
         raise ValueError(f"invalid number of electrons {nelec}")
 
 
+def cal_bands_diff():
+    """compare band """
+    pass
+
+
 def plot_bands(
     dpaths: List[str],
     labels: List[str] = None,
@@ -349,7 +354,8 @@ def plot_bands(
     assert shift_method in [
         None,
         "fullfill_valence_top",
-        "fullfill_valence_gamma"
+        "fullfill_valence_gamma",
+        "valence_max_conduct_mid_point",
     ]
     if emin is None:
         assert emax is None, ValueError(
@@ -372,6 +378,7 @@ def plot_bands(
         f"inconsistent number of electrons: {nelec_list}"
     )
 
+    log(f"select kpaths {first_nkpaths=}")
     log(f"filter {first_nkpaths=} kpaths")
     if first_nkpaths is not None:
         assert (first_nkpaths >= 1) and (isinstance(first_nkpaths, int))
@@ -442,6 +449,15 @@ def plot_bands(
                 if endname.lower() in ("gamma", "g"):
                     break
             shift = -band_data_full["band_energies"][cnt_points - 1, fullfill_idx]
+        elif shift_method == "valence_max_conduct_mid_point":
+            """find the valence top"""
+            log("{band_data_idx=}, finding valence max and conduct min")
+            fullfill_idx = find_fullfill_valance_band_idx(
+                band_data_full["band_occupations"], band_info["nelec"]
+            )
+            val_max = numpy.max(band_data_full["band_energies"][:, fullfill_idx])
+            cond_min = numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
+            shift = -0.5 * (val_max + cond_min)
         else:
             raise ValueError(f"invalid shift_method: {shift_method}")
 
