@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Dict, List, Literal, Tuple, TypedDict, Union
+from typing import Dict, List, Literal, Tuple, TypedDict, Union, Optional
 
 import matplotlib.pyplot as plt
 import numpy
@@ -270,9 +270,183 @@ def find_fullfill_valance_band_idx(band_occupations: numpy.ndarray, nelec: int) 
         raise ValueError(f"invalid number of electrons {nelec}")
 
 
-def cal_bands_diff():
-    """compare band """
-    pass
+def cal_band_gap(
+    dpath: str,
+    verbose: bool = False,
+):
+    if verbose:
+        log = print
+    else:
+        log = lambda *args, **kwargs: None  # NOQA
+
+    assert os.path.exists(dpath)
+
+    log("reading bands")
+    band_info = get_band_info(dpath, verbose)
+
+    log("concatenating band data")
+    band_data_full = concat_band_data(band_info)
+    assert len(band_data_full) == 1, ValueError(
+        f"invalid number of spin channels: {len(band_data_full)}"
+    )
+    band_data_full = band_data_full[0]
+
+    fullfill_idx = find_fullfill_valance_band_idx(
+        band_data_full["band_occupations"], band_info["nelec"]
+    )
+    val_max = numpy.max(band_data_full["band_energies"][:, fullfill_idx])
+    cond_min = numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
+    return cond_min - val_max
+
+
+
+def cal_bands_diff(
+    dpaths: List[str],
+    bands_indexes: Optional[List[int]] = None,
+    shift_method: Union[None, str] = "align_valence_top",
+    normalize: Union[None, Literal["length"], Literal["points"]] = None,
+    exponent: float = 1.0,
+    segment_indexes: Optional[List[int]] = None,
+    verbose: bool = False,
+):
+    """compare band structure differences
+    WARNING: only for RESTRICTED case!
+
+    Args:
+        dpaths (List[str]): The list of directories containing the band data. Length == 2.
+        bands_indexes (Optional[List[int]], optional): The list of bands indexes to compare. \
+            0 for valence top, <0 for valence bands, >0 for conduction bands. Defaults to None.
+        shift_method (Union[None, str], optional): The method to shift the bands. Defaults to "align_valence_top".
+        normalize (Union[Literal["length"], Literal["points"]], optional): The normalization method. Defaults to "points".
+        segment_indexes (Optional[List[int]], optional): The list of segment indexes to compare, start from 1. Defaults to None.
+
+    Return:
+        numpy.ndarray: The band difference, shape (n_bands,)
+    """
+    if verbose:
+        log = print
+    else:
+        log = lambda *args, **kwargs: None  # NOQA
+
+    assert len(dpaths) == 2, ValueError(f"invalid length of dpaths: {len(dpaths)}")
+    assert os.path.isdir(dpaths[0]), f"{dpaths[0]} is not a directory"
+    assert os.path.isdir(dpaths[1]), f"{dpaths[1]} is not a directory"
+
+    log("reading bands")
+    band_info_list = [get_band_info(d, verbose) for d in dpaths]
+
+    log("sanity check of bands")
+    nelec_list = [band_info["nelec"] for band_info in band_info_list]
+    assert len(set(nelec_list)) == 1, ValueError(
+        f"inconsistent number of electrons: {nelec_list}"
+    )
+
+    log("check band data consistency")
+    for bs1, bs2 in zip(
+        band_info_list[0]["band_segments"], band_info_list[1]["band_segments"],
+        strict=True
+    ):
+        assert numpy.allclose(bs1[0], bs2[0]), ValueError(f"inconsistent start: {bs1} != {bs2}")
+        assert numpy.allclose(bs1[1], bs2[1]), ValueError(f"inconsistent end: {bs1} != {bs2}")
+        assert numpy.allclose(bs1[2], bs2[2]), ValueError(f"inconsistent length: {bs1} != {bs2}")
+        assert bs1[3] == bs2[3], ValueError(f"inconsistent npoint: {bs1} != {bs2}")
+
+    if segment_indexes is None:
+        segment_indexes = sorted(band_info_list[0]["band_data"].keys())
+        log(f"using full kpaths {segment_indexes=}")
+    else:
+        assert isinstance(segment_indexes, list) and all(
+            [isinstance(i, int) for i in segment_indexes]
+        ), ValueError(f"invalid segment_indexes: {segment_indexes}")
+        assert all([i > 0 for i in segment_indexes]), \
+            ValueError(f"segment_indexes start from 1, but got {segment_indexes}")
+        log(f"using part of kpaths {segment_indexes=}")
+        # for band_info in band_info_list:
+        #     band_info["labels"] = None  # not meaningful
+        #     band_info["band_segments"] = [  # remember segment_indexes start from 1 !!!
+        #         band_info["band_segments"][i - 1] for i in segment_indexes
+        #     ]
+        #     band_info["band_totlength"] = sum([seg[2] for seg in band_info["band_segments"]])
+        #     band_info["band_data"] = {i: band_info["band_data"][i] for i in segment_indexes}
+        #     assert band_info["max_spin_channel"] == 1
+
+    """locate the band indexes"""
+    log(f"number of electrons: {band_info_list[0]['nelec']}")
+    fullfill_idx = find_fullfill_valance_band_idx(
+        band_info_list[0]["band_data"][1][0]["band_occupations"],
+        band_info_list[0]["nelec"],
+    )
+    if bands_indexes is None:
+        """for all bands"""
+        selected_bands_indexes = numpy.arange(
+            band_info_list[0]["band_data"][1][0]["band_energies"].shape[1]
+        )
+    else:
+        assert isinstance(bands_indexes, list) and all(
+            [isinstance(i, int) for i in bands_indexes]
+        ), ValueError(f"invalid bands_indexes: {bands_indexes}")
+        """get valence band top index"""
+        selected_bands_indexes = list(numpy.array(bands_indexes) + fullfill_idx)
+    log(f"{bands_indexes=} -> {selected_bands_indexes=}")
+
+    """calculate shift values"""
+    band_data_full_list = [concat_band_data(band_info) for band_info in band_info_list]
+    shift = [0.0, 0.0]  # add to band energies
+    for band_data_idx, (band_info, band_data_full) in enumerate(
+        zip(band_info_list, band_data_full_list)
+    ):
+        """special for restricted case"""
+        assert band_info["max_spin_channel"] == 1
+        assert len(band_data_full) == 1
+        band_data_full = band_data_full[0]
+
+        if shift_method is None:
+            pass
+        elif shift_method == "align_valence_top":
+            """find the valence top"""
+            shift[band_data_idx] = -numpy.max(band_data_full["band_energies"][:, fullfill_idx])
+        elif shift_method == "align_conduct_bottom":
+            """find the conduct bottom"""
+            shift[band_data_idx] = -numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
+        elif shift_method == "fullfill_valence_gamma":
+            """find the valence gamma value"""
+            # find the gamma point index
+            cnt_points = 0
+            for _, _, _, npoint, startname, endname in band_info["band_segments"]:
+                if startname.lower() in ("gamma", "g"):
+                    break
+                cnt_points += npoint
+                if endname.lower() in ("gamma", "g"):
+                    break
+            shift[band_data_idx] = -band_data_full["band_energies"][cnt_points - 1, fullfill_idx]
+        elif shift_method == "valence_top_conduct_bottom_mid":
+            """find the valence top"""
+            val_max = numpy.max(band_data_full["band_energies"][:, fullfill_idx])
+            cond_min = numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
+            shift[band_data_idx] = -0.5 * (val_max + cond_min)
+        else:
+            raise ValueError(f"invalid shift_method: {shift_method}")
+    log(f"{shift=}")
+
+    """calculate difference"""
+    band_diff = [  # by band segments
+        {
+            "kpath_length": band_info_list[0]["band_segments"][si - 1][2],
+            "kpath_npoints": band_info_list[0]["band_segments"][si - 1][3],
+            "band_diff": numpy.sum(numpy.abs(
+                band_info_list[0]["band_data"][si][0]["band_energies"][:, selected_bands_indexes] + shift[0]
+                - band_info_list[1]["band_data"][si][0]["band_energies"][:, selected_bands_indexes] - shift[1]
+            ) ** exponent, axis=0) ** (1 / exponent),  # shape=(n_bands,)
+        } for si in segment_indexes
+    ]
+    if normalize is None:
+        return numpy.sum([bd["band_diff"] for bd in band_diff], axis=0)
+    elif normalize == "length":
+        return numpy.sum([bd["band_diff"] / bd["kpath_length"] for bd in band_diff], axis=0)
+    elif normalize == "points":
+        return numpy.sum([bd["band_diff"] / bd["kpath_npoints"] for bd in band_diff], axis=0)
+    else:
+        raise ValueError(f"invalid normalize: {normalize}")
 
 
 def plot_bands(
@@ -282,7 +456,7 @@ def plot_bands(
     linestyles: List[str] = None,
     plt_kwargs: Union[Dict, List[Dict]] = None,
     first_nkpaths: int = None,
-    shift_method: Union[None, str] = "fullfill_valence_top",
+    shift_method: Union[None, str] = "align_valence_top",
     emin: float = None,
     emax: float = None,
     ax=None,
@@ -300,7 +474,7 @@ def plot_bands(
         plt_kwargs (Union[Dict, List[Dict]], optional): Additional keyword arguments for the plot function. \
             Can be a single dictionary or a list of dictionaries. Defaults to None.
         first_nkpaths (int, optional): The number of k-paths to plot. Defaults to None.
-        shift_method (Union[None, str], optional): The method to shift the bands. Defaults to "fullfill_valence_top".
+        shift_method (Union[None, str], optional): The method to shift the bands. Defaults to "align_valence_top".
         emin (float, optional): The minimum energy value to plot. Defaults to None.
         emax (float, optional): The maximum energy value to plot. Defaults to None.
         ax (optional): The matplotlib axes object to plot on. Defaults to None.
@@ -353,9 +527,10 @@ def plot_bands(
             raise ValueError(f"invalid type for kwarg plt_kwargs: {type(plt_kwargs)}")
     assert shift_method in [
         None,
-        "fullfill_valence_top",
+        "align_valence_top",
+        "align_conduct_bottom",
         "fullfill_valence_gamma",
-        "valence_max_conduct_mid_point",
+        "valence_top_conduct_bottom_mid",
     ]
     if emin is None:
         assert emax is None, ValueError(
@@ -378,9 +553,8 @@ def plot_bands(
         f"inconsistent number of electrons: {nelec_list}"
     )
 
-    log(f"select kpaths {first_nkpaths=}")
-    log(f"filter {first_nkpaths=} kpaths")
     if first_nkpaths is not None:
+        log(f"select kpaths {first_nkpaths=}")
         assert (first_nkpaths >= 1) and (isinstance(first_nkpaths, int))
         """filter labels, band_data, band_segments"""
         for idx, band_info in enumerate(band_info_list):
@@ -426,17 +600,24 @@ def plot_bands(
 
         if shift_method is None:
             shift = 0.0
-        elif shift_method == "fullfill_valence_top":
+        elif shift_method == "align_valence_top":
             """find the valence top"""
-            log("{band_data_idx=}, finding valence top, for RESTRICTED case only!")
+            log(f"{band_data_idx=}, finding valence top, for RESTRICTED case only!")
             fullfill_idx = find_fullfill_valance_band_idx(
                 band_data_full["band_occupations"], band_info["nelec"]
             )
             shift = -numpy.max(band_data_full["band_energies"][:, fullfill_idx])
             log(f"{shift=}")
+        elif shift_method == "align_conduct_bottom":
+            """find the conduct bottom"""
+            log(f"{band_data_idx=}, finding conduct bottom, for RESTRICTED case only!")
+            fullfill_idx = find_fullfill_valance_band_idx(
+                band_data_full["band_occupations"], band_info["nelec"]
+            )
+            shift = -numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
         elif shift_method == "fullfill_valence_gamma":
             """find the valence gamma value"""
-            log("{band_data_idx=}, finding valence gamma, for RESTRICTED case only!")
+            log(f"{band_data_idx=}, finding valence gamma, for RESTRICTED case only!")
             fullfill_idx = find_fullfill_valance_band_idx(
                 band_data_full["band_occupations"], band_info["nelec"]
             )
@@ -449,9 +630,9 @@ def plot_bands(
                 if endname.lower() in ("gamma", "g"):
                     break
             shift = -band_data_full["band_energies"][cnt_points - 1, fullfill_idx]
-        elif shift_method == "valence_max_conduct_mid_point":
+        elif shift_method == "valence_top_conduct_bottom_mid":
             """find the valence top"""
-            log("{band_data_idx=}, finding valence max and conduct min")
+            log(f"{band_data_idx=}, finding valence max and conduct min")
             fullfill_idx = find_fullfill_valance_band_idx(
                 band_data_full["band_occupations"], band_info["nelec"]
             )
@@ -473,11 +654,14 @@ def plot_bands(
             band_energies = band_energies[:, numpy.any(band_energies < emax, axis=0)]
         log(f"after filtering, {band_energies.shape=} ~ (n_kpoints, n_bands)")
         bands_cnt_list[band_data_idx] += band_energies.shape[1]
+        if isinstance(plt_kwargs, dict):
+            plt_kwargs["linestyle"] = linestyles[band_data_idx]
+        elif isinstance(plt_kwargs, list):
+            plt_kwargs[band_data_idx].setdefault("linestyle", linestyles[band_data_idx])
         ax.plot(
             band_data_full["xvals"],
             band_energies,
             color=colors[band_data_idx],
-            linestyle=linestyles[band_data_idx],
             label=labels[band_data_idx],
             **(
                 plt_kwargs
