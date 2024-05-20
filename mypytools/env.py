@@ -15,6 +15,7 @@ def find_root(
     ),
     project_root_env_var: bool = True,
     pythonpath: bool = False,
+    cwd: bool = False,
     max_depth: int = 3,
     verbose: bool = False,
 ):
@@ -29,6 +30,7 @@ def find_root(
             Defaults to True.
         pythonpath (bool, optional): Whether to check the PYTHONPATH environment variable. \
             Defaults to False.
+        cwd (bool, optional): Whether to search from the current working directory. Defaults to False.
         max_depth (int, optional): The maximum depth to search. Defaults to 3.
         verbose (bool, optional): Whether to print the search path. Defaults to False.
 
@@ -80,5 +82,8 @@ def find_root(
 
     if pythonpath:
         sys.path.insert(0, root)
+
+    if cwd:
+        os.chdir(root)
 
     return root
