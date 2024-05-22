@@ -1,5 +1,5 @@
 import logging
-from typing import Literal, Union, Tuple
+from typing import Literal, Tuple, Union
 
 import numpy
 from ase.atoms import Atoms
@@ -106,6 +106,7 @@ def gen_sliding_bilayer(
         M = cell_comb.get_masses()
         shake_val = shake_all_atoms * numpy.random.randn(*cell_comb.positions.shape) * (M ** (-0.5)).reshape(-1, 1)
         cell_comb.positions += shake_val
+    cell_comb.wrap()
     return cell_comb
 
 

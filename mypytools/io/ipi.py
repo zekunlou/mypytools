@@ -178,7 +178,7 @@ def single_xyz_ipi2ase(
 def multi_xyz_ipi2ase(
     file_desc: Union[str, TextIO, TextIOWrapper],
     output_units: Union[Literal["angstrom"], Literal["atomic_unit"]] = "angstrom",
-    index: Union[List[int], int] = 0,
+    index: Union[List[int], int, None] = None,
 ):
     """
     Convert ipi xyz file (consists of may geometries) to ase.Atoms.
@@ -186,7 +186,7 @@ def multi_xyz_ipi2ase(
     Args:
         file_desc (str, TextIO, TextIOWrapper): the file to read from
         output_units (str): the units of output geometry, angstrom or atomic_unit, default is angstrom
-        index (List[int], int): the index of geometries to be converted, default is 0
+        index (List[int], int, None): the index of geometries to be converted, default is None for all
 
     Returns:
         List[ase.Atoms]: the geometries in ase format
@@ -194,6 +194,8 @@ def multi_xyz_ipi2ase(
     if isinstance(index, int):
         index = [index]
         only_one_index = True
+    elif index is None:
+        only_one_index = False
     else:
         only_one_index = False
     if isinstance(file_desc, str):
@@ -202,13 +204,18 @@ def multi_xyz_ipi2ase(
     all_proc_data_list = tuple(
         iter_file("xyz", file_desc)
     )  # there might be memory issue
-    select_proc_data_list = [all_proc_data_list[i] for i in index]
-    assert len(select_proc_data_list) == len(
-        index
-    ), f"get {len(select_proc_data_list)} data, but {len(index)} index"
-    geom_list = [
-        geom_ipi2ase(proc_data, output_units) for proc_data in select_proc_data_list
-    ]
+    if index is not None:
+        select_proc_data_list = [all_proc_data_list[i] for i in index]
+        assert len(select_proc_data_list) == len(
+            index
+        ), f"get {len(select_proc_data_list)} data, but {len(index)} index"
+        geom_list = [
+            geom_ipi2ase(proc_data, output_units) for proc_data in select_proc_data_list
+        ]
+    else:
+        geom_list = [
+            geom_ipi2ase(proc_data, output_units) for proc_data in all_proc_data_list
+        ]
     if only_one_index:
         return geom_list[0]
     else:
