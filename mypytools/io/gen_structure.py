@@ -62,6 +62,7 @@ def gen_sliding_bilayer(
     """make supercell"""
     cell_sup = make_supercell(cell_prim, [[n1, 0, 0], [0, n2, 0], [0, 0, 1]])
     cell_sup.cell[2, 2] = 6 * z_dist if 6 * z_dist > 100 else 100
+    cell_sup.positions[:, 2] = cell_sup.cell[2, 2] / 2
     layer_lower = cell_sup.copy()
     layer_upper = cell_sup.copy()
     """move upper layer higher"""
@@ -107,6 +108,9 @@ def gen_sliding_bilayer(
         shake_val = shake_all_atoms * numpy.random.randn(*cell_comb.positions.shape) * (M ** (-0.5)).reshape(-1, 1)
         cell_comb.positions += shake_val
     cell_comb.wrap()
+    """center the cell"""
+    cell_z = cell_comb.cell[2, 2]
+    cell_comb.positions[:, 2] -= numpy.mean(cell_comb.positions[:, 2]) - cell_z / 2
     return cell_comb
 
 
