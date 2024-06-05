@@ -62,7 +62,6 @@ def gen_sliding_bilayer(
     """make supercell"""
     cell_sup = make_supercell(cell_prim, [[n1, 0, 0], [0, n2, 0], [0, 0, 1]])
     cell_sup.cell[2, 2] = 6 * z_dist if 6 * z_dist > 100 else 100
-    cell_sup.positions[:, 2] = cell_sup.cell[2, 2] / 2
     layer_lower = cell_sup.copy()
     layer_upper = cell_sup.copy()
     """move upper layer higher"""
@@ -94,14 +93,14 @@ def gen_sliding_bilayer(
         assert isinstance(shake_upper_layer_z, float)
         shake_val = shake_upper_layer_z * numpy.random.randn()
         layer_upper.positions[:, 2] += shake_val
-    """join two layers"""
+    """combine the two layers"""
     cell_comb = Atoms(
         symbols=layer_lower.get_chemical_symbols() + layer_upper.get_chemical_symbols(),
         positions=numpy.concatenate([layer_lower.positions, layer_upper.positions], axis=0),
         cell=cell_sup.cell,
         pbc=cell_sup.pbc,
     )
-    """shape atoms"""
+    """shake all atoms"""
     if shake_all_atoms is not None:
         assert isinstance(shake_all_atoms, float)
         M = cell_comb.get_masses()
@@ -112,6 +111,104 @@ def gen_sliding_bilayer(
     cell_z = cell_comb.cell[2, 2]
     cell_comb.positions[:, 2] -= numpy.mean(cell_comb.positions[:, 2]) - cell_z / 2
     return cell_comb
+
+
+def gen_twisted_bilayer(
+    cell_prim: Atoms,
+    m:int,
+    r:int,
+    z_dist: float,
+    conj: Union[Literal["AA"], Literal["AB"], Literal["AA'"]],
+    shake_upper_layer_z: Union[None, float] = None,
+    shake_all_atoms: Union[None, float] = None,
+    seed: Union[None, int] = None,
+):
+    """generate twisted bilayer, for hexagonal lattice only!
+
+    Args:
+        cell_prim (Atoms): primitive cell
+        m (int): the first integer, defines the twist angle
+        r (int): the second integer, defines the twist angle
+        z_dist (float): distance between two layers
+        conj (str): "AA", "AB", "AA'", bilayer conjugation relation
+        shake_upper_layer_z (float): shake upper layer z coordinate.
+            This is will be used to scale a normal distributed value.
+        shake_all_atoms (float): shake all atoms. The full scaling factor is ${shake_all_atoms}*M**(-0.5),
+            and will be used to scale a normal distributed value.
+        seed (int): random seed for reproducibility
+
+    Returns:
+        dict: {
+            "twist_angle": float, the twist angle in radian,
+            "atoms": Atoms, the twisted bilayer cell
+        }
+
+    Example:
+    ```python
+    twisted_bilayer = gen_twisted_bilayer(
+        cell_prim=cell_prim,
+        m=3,
+        r=1,
+        z_dist=5.664,
+        conj="AA",
+        shake_all_atoms=1.0,
+        shake_upper_layer_z=0.6,
+        seed=17,
+    )
+    visualize_cell_2d(twisted_bilayer["atoms"])
+    plt.show()
+    plt.scatter(twisted_bilayer["atoms"].positions[:, 0], twisted_bilayer["atoms"].positions[:, 2])
+    plt.show()
+    ```
+    """
+    if seed is not None:
+        numpy.random.seed(seed)
+    assert numpy.allclose(cell_prim.get_cell()[[2,2,0,1], [0,1,2,2]], 0)
+    twist_property = get_twist_property(m, r)
+    twist_angle = twist_property["angle"]
+    supercell_matrix = numpy.diag([1,1,1])
+    supercell_matrix[:2,:2] = twist_property["suplat_trans"]
+    """ generate the bottom layer """
+    supercell0 = make_supercell(cell_prim, supercell_matrix)
+    supercell0.cell[2,2] = 6 * z_dist if 6 * z_dist > 100 else 100
+    supercell0_point = supercell0.get_cell()[:2, :2].sum(axis=0)
+    theta = numpy.arctan(supercell0_point[1] / supercell0_point[0]) / numpy.pi * 180
+    supercell0.rotate(-theta, 'z', rotate_cell=True)  # align the furthest cell vertex to x-axis
+    """ generate the top layer """
+    supercell1 = supercell0.copy()
+    supercell1.positions[:, 1] *= -1  # invert y-axis
+    """deal with conj, operate on upper layer only"""
+    if conj == "AA":  # do nothing
+        pass
+    elif conj == "AB":  # z-inversion
+        supercell1_z_mean = numpy.mean(supercell1.positions[:, 2])
+        supercell1.positions[:, 2] = 2 * supercell1_z_mean - supercell1.positions[:, 2]
+    elif conj == "AA'":
+        supercell0_point = supercell1.get_cell()[:2, :2].sum(axis=0)
+        supercell1.positions[:,:2] = supercell0_point - supercell1.positions[:,:2]
+    """ shake upper layer z coordinate, only upper layer """
+    supercell1.positions[:, 2] += z_dist  # lift the top layer
+    if shake_upper_layer_z is not None:
+        assert numpy.allclose(cell_prim.get_cell()[[2,2,0,1], [0,1,2,2]], 0)
+        shake_val = shake_upper_layer_z * numpy.random.randn()
+        supercell1.positions[:, 2] += shake_val
+    """ combine the two layers, rotate to ipi format """
+    supercell_comb = supercell0 + supercell1
+    supercell_comb.rotate(30, 'z', rotate_cell=True)
+    """ shake atoms """
+    if shake_all_atoms is not None:
+        assert isinstance(shake_all_atoms, float)
+        M = supercell_comb.get_masses()
+        shake_val = shake_all_atoms * numpy.random.randn(*supercell_comb.positions.shape) * (M ** (-0.5)).reshape(-1, 1)
+        supercell_comb.positions += shake_val
+    """ center the cell and wrap up """
+    supercell_z = supercell_comb.cell[2, 2]
+    supercell_comb.positions[:, 2] -= numpy.mean(supercell_comb.positions[:, 2]) - supercell_z / 2
+    supercell_comb.wrap()
+    return {
+        "twist_angle": twist_angle,
+        "atoms": supercell_comb,
+    }
 
 
 def get_rot2D_mat(theta: float):
