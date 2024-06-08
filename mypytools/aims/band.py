@@ -459,6 +459,7 @@ def plot_bands(
     shift_method: Union[None, str] = "align_valence_top",
     emin: float = None,
     emax: float = None,
+    legend_loc = "best",
     ax=None,
     verbose: bool = False,
 ):
@@ -679,10 +680,11 @@ def plot_bands(
         assert isinstance(emin, float) and isinstance(emax, float)
         log(f"setting emin/emax to {emin}/{emax}")
         ax.set_ylim(emin, emax)
-    ax.legend(labels)
+    # ax.legend(labels, loc=legend_loc)
     ax.legend(
         [handle for i, handle in enumerate(ax_handles) if i in ax_labels_display],
         [label for i, label in enumerate(ax_labels) if i in ax_labels_display],
+        loc = legend_loc
     )
 
     """plot ticks"""

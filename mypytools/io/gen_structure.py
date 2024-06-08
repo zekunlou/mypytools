@@ -1,9 +1,11 @@
 import logging
-from typing import Literal, Tuple, Union
+from typing import Literal, Tuple, Union, Dict
 
 import numpy
 from ase.atoms import Atoms
 from ase.build import make_supercell
+from ase.data import atomic_masses
+from ase.symbols import symbols2numbers
 
 _log = logging.getLogger(__name__)
 
@@ -16,7 +18,7 @@ def gen_sliding_bilayer(
     conj: Union[Literal["AA"], Literal["AB"], Literal["AA'"]],
     shake_upper_layer_z: Union[None, float] = None,
     slide_lower_layer_xy: Union[None, float] = None,
-    shake_all_atoms: Union[None, float] = None,
+    shake_all_atoms: Union[None, float, dict] = None,
     seed: Union[None, int] = None,
 ) -> Atoms:
     """WARNING: This function is not well-tested yet.
@@ -101,11 +103,27 @@ def gen_sliding_bilayer(
         pbc=cell_sup.pbc,
     )
     """shake all atoms"""
-    if shake_all_atoms is not None:
-        assert isinstance(shake_all_atoms, float)
+    if shake_all_atoms is None:
+        pass
+    elif isinstance(shake_all_atoms, float):
         M = cell_comb.get_masses()
         shake_val = shake_all_atoms * numpy.random.randn(*cell_comb.positions.shape) * (M ** (-0.5)).reshape(-1, 1)
         cell_comb.positions += shake_val
+    elif isinstance(shake_all_atoms, dict):  # e.g. {"Zr": 2.0, "S": 1.0}
+        species_names = set(cell_comb.get_chemical_symbols())
+        assert species_names == set(shake_all_atoms.keys())
+        species_masses:Dict[str, float] = {s: atomic_masses[symbols2numbers(s)[0]] for s in species_names}
+        species_idx = {
+            s: numpy.where(numpy.array(cell_comb.get_chemical_symbols()) == s)[0]
+            for s in species_names
+        }
+        shake_val = numpy.zeros_like(cell_comb.positions)
+        for s in species_names:
+            shake_val[species_idx[s]] = shake_all_atoms[s] * numpy.random.randn(len(species_idx[s]), 3) \
+                * (species_masses[s] ** (-0.5))
+        cell_comb.positions += shake_val
+    else:
+        raise ValueError(f"shake_all_atoms {shake_all_atoms} not supported, should be float or dict")
     cell_comb.wrap()
     """center the cell"""
     cell_z = cell_comb.cell[2, 2]
