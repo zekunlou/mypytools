@@ -285,16 +285,3 @@ def load_reduced_data(save_fpath: str):
         "reduced_data": reduced_data,
         "groups": groups,
     }
-
-
-def ensure_arr1d(x: Union[int, numpy.ndarray]):
-    if isinstance(x, int):
-        x = numpy.array(
-            [
-                x,
-            ]
-        )
-    assert isinstance(x, numpy.ndarray), f"x is not a numpy array, but {type(x)}"
-    assert x.ndim == 1, f"x is not 1d, but {x.ndim}d"
-    assert x.size > 0, f"x is empty"
-    return x
