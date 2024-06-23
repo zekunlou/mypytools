@@ -1,5 +1,5 @@
 import logging
-from typing import Literal, Tuple, Union, Dict
+from typing import Dict, Literal, Tuple, Union
 
 import numpy
 from ase.atoms import Atoms
@@ -223,10 +223,8 @@ def gen_twisted_bilayer(
     supercell_z = supercell_comb.cell[2, 2]
     supercell_comb.positions[:, 2] -= numpy.mean(supercell_comb.positions[:, 2]) - supercell_z / 2
     supercell_comb.wrap()
-    return {
-        "twist_angle": twist_angle,
-        "atoms": supercell_comb,
-    }
+    supercell_comb.info["twist_angle"] = twist_angle
+    return supercell_comb
 
 
 def get_rot2D_mat(theta: float):
