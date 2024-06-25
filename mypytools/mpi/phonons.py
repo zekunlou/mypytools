@@ -31,7 +31,7 @@ class PhononsMPI(Phonons):
         self.mpi_comm.barrier()
         # check tasks_indices
         assert set(mpi_task_indices) <= set(self.indices), f"{mpi_task_indices=} should be a subset of {self.indices=}"
-        print(f"rank={self.mpi_rank}, {mpi_task_indices=}")
+        print(f"rank={self.mpi_rank}: {mpi_task_indices=}")
 
         # Atoms in the supercell -- repeated in the lattice vector directions
         # beginning with the last
@@ -53,8 +53,8 @@ class PhononsMPI(Phonons):
         # Do calculation on equilibrium structure
         eq_disp = self._disp(0, 0, 0)
         # with self.cache.lock(f'{self.name}.eq') as handle:
-        # only rank == 0 calculate eq
-        if self.mpi_rank == 0:
+        # only rank == size-1 calculate eq, because the latter tasks have fewer jobs
+        if self.mpi_rank == self.mpi_size-1:
             with self.cache.lock(eq_disp.name) as handle:
                 if handle is not None:
                     output = self(atoms_N)
@@ -101,5 +101,5 @@ class PhononsMPI(Phonons):
         if self.mpi_rank == 0:
             # maintain the tqdm bar
             pbar.update(len([_ for _ in self.cache]) - indices_finished_cnt)
-            print(f"rank={self.mpi_rank}, all finished")
+            print(f"rank={self.mpi_rank}: all finished")
         self.mpi_comm.barrier()
