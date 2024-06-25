@@ -1,6 +1,44 @@
+""" do not import mpi4py in the header! """
+import os
 import random
 from typing import List
 
+def load_print_func(use_mpi:bool=True) -> callable:
+    if not use_mpi:
+        return print
+    else:
+        _, _, rank = load_mpi(use_mpi)
+        return lambda *args, **kwargs: print(f"{rank=}:", *args, **kwargs)
+
+def load_mpi(use_mpi:bool=True):
+    """load MPI objects, and keep consistency between MPI and none MPI
+
+    Args:
+        use_mpi: if use mpi
+
+    Returns: tuple (comm, size, rank)
+    """
+    if use_mpi:
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
+        size = comm.Get_size()
+        rank = comm.Get_rank()
+    else:
+        comm = None
+        size = 1
+        rank = 0
+    return comm, size, rank
+
+def set_num_cpus(num: int = None):
+    if isinstance(num, int):
+        assert num > 0
+        for env_var in (
+            "OMP_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+        ):
+            os.environ[env_var] = num
 
 def distribute_work(job_indexes: List[int], size: int, shuffle: bool = True) -> List[List[int]]:
     """split the job_indexes into size parts
