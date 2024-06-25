@@ -41,6 +41,15 @@ class PhononsMPI(Phonons):
         assert self.calc is not None, "Provide calculator in __init__ method"
         atoms_N.calc = self.calc
 
+        # setup progress bar
+        if self.mpi_rank == 0:
+            pbar = tqdm(total=len(self.indices)+1, desc="finite diff")  # eq included
+            indices_finished_cnt = len([_ for _ in self.cache])
+            pbar.update(indices_finished_cnt)
+        else:
+            pbar = None
+            indices_finished_cnt = None
+
         # Do calculation on equilibrium structure
         eq_disp = self._disp(0, 0, 0)
         # with self.cache.lock(f'{self.name}.eq') as handle:
@@ -58,25 +67,17 @@ class PhononsMPI(Phonons):
         offset = natoms * self.offset
         pos = atoms_N.positions[offset: offset + natoms].copy()
 
-        if self.mpi_rank == 0:
-            pbar = tqdm(total=len(self.indices), desc="finite diff")
-            indices_finished_cnt = len([_ for _ in self.cache])
-            pbar.update(indices_finished_cnt)
-        else:
-            pbar = None
-            indices_finished_cnt = None
-
         # Loop over all displacements
         for a in self.indices:
-            if self.mpi_rank == 0:
-                # maintain the tqdm bar
-                last_cnt = indices_finished_cnt
-                indices_finished_cnt = len([_ for _ in self.cache])
-                pbar.update(indices_finished_cnt - last_cnt)
-            else:
-                last_cnt = None
             if a not in mpi_task_indices:  # skip indices not for me
                 continue
+            if self.mpi_rank == 0:
+                # maintain the tqdm bar
+                indices_finished_cnt_new = len([_ for _ in self.cache])
+                pbar.update(indices_finished_cnt_new - indices_finished_cnt)
+                indices_finished_cnt = indices_finished_cnt_new
+            else:
+                indices_finished_cnt_new = None
             # else:
             #     print(f"rank={self.mpi_rank}, index={a}/{max(self.indices)}", flush=True)
             for i in range(3):
@@ -99,8 +100,6 @@ class PhononsMPI(Phonons):
         self.mpi_comm.barrier()
         if self.mpi_rank == 0:
             # maintain the tqdm bar
-            last_cnt = indices_finished_cnt
-            indices_finished_cnt = len([_ for _ in self.cache])
-            pbar.update(indices_finished_cnt - last_cnt)
+            pbar.update(len([_ for _ in self.cache]) - indices_finished_cnt)
             print(f"rank={self.mpi_rank}, all finished")
         self.mpi_comm.barrier()
