@@ -43,7 +43,7 @@ class PhononsMPI(Phonons):
 
         # setup progress bar
         if self.mpi_rank == 0:
-            pbar = tqdm(total=len(self.indices)+1, desc="finite diff")  # eq included
+            pbar = tqdm(total=len(self.indices)*6 + 1, desc="finite diff")  # eq included
             indices_finished_cnt = len([_ for _ in self.cache])
             pbar.update(indices_finished_cnt)
         else:
