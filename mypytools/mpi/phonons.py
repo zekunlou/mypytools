@@ -1,11 +1,16 @@
 from typing import List
 
-from ase.parallel import world
 from ase.phonons import Phonons
 from tqdm import tqdm
 
 
 class PhononsMPI(Phonons):
+
+    def setup_mpi(self):
+        from mpi4py import MPI
+        self.mpi_comm = MPI.COMM_WORLD
+        self.mpi_size = self.mpi_comm.Get_size()
+        self.mpi_rank = self.mpi_comm.Get_rank()
 
     def run(self, mpi_task_indices:List[int]):
         """Run finite difference calculation with MPI
@@ -23,10 +28,10 @@ class PhononsMPI(Phonons):
             file (ending with .json), which must be deleted before restarting the
             job. Otherwise the calculation for that displacement will not be done.
         """
-        world.barrier()
+        self.comm.barrier()
         # check tasks_indices
         assert set(mpi_task_indices) <= set(self.indices), f"{mpi_task_indices=} should be a subset of {self.indices=}"
-        print(f"rank={world.rank}, {mpi_task_indices=}")
+        print(f"rank={self.mpi_rank}, {mpi_task_indices=}")
 
         # Atoms in the supercell -- repeated in the lattice vector directions
         # beginning with the last
@@ -40,7 +45,7 @@ class PhononsMPI(Phonons):
         eq_disp = self._disp(0, 0, 0)
         # with self.cache.lock(f'{self.name}.eq') as handle:
         # only rank == 0 calculate eq
-        if world.rank == 0:
+        if self.mpi_rank == 0:
             with self.cache.lock(eq_disp.name) as handle:
                 if handle is not None:
                     output = self(atoms_N)
@@ -53,7 +58,7 @@ class PhononsMPI(Phonons):
         offset = natoms * self.offset
         pos = atoms_N.positions[offset: offset + natoms].copy()
 
-        if world.rank == 0:
+        if self.mpi_rank == 0:
             pbar = tqdm(total=len(self.indices), desc="finite diff")
             indices_finished_cnt = len([_ for _ in self.cache])
             pbar.update(indices_finished_cnt)
@@ -63,7 +68,7 @@ class PhononsMPI(Phonons):
 
         # Loop over all displacements
         for a in self.indices:
-            if world.rank == 0:
+            if self.mpi_rank == 0:
                 # maintain the tqdm bar
                 last_cnt = indices_finished_cnt
                 indices_finished_cnt = len([_ for _ in self.cache])
@@ -72,8 +77,8 @@ class PhononsMPI(Phonons):
                 last_cnt = None
             if a not in mpi_task_indices:  # skip indices not for me
                 continue
-            else:
-                print(f"rank={world.rank}, index={a}/{max(self.indices)}", flush=True)
+            # else:
+            #     print(f"rank={self.mpi_rank}, index={a}/{max(self.indices)}", flush=True)
             for i in range(3):
                 for sign in [-1, 1]:
                     disp = self._disp(a, i, sign)
@@ -91,11 +96,11 @@ class PhononsMPI(Phonons):
                             # Return to initial positions
                             atoms_N.positions[offset + a, i] = pos[a, i]
 
-        world.barrier()
-        if world.rank == 0:
+        self.mpi_comm.barrier()
+        if self.mpi_rank == 0:
             # maintain the tqdm bar
             last_cnt = indices_finished_cnt
             indices_finished_cnt = len([_ for _ in self.cache])
             pbar.update(indices_finished_cnt - last_cnt)
-            print(f"rank={world.rank}, all finished")
-        world.barrier()
+            print(f"rank={self.mpi_rank}, all finished")
+        self.mpi_comm.barrier()
