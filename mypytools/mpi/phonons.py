@@ -28,7 +28,7 @@ class PhononsMPI(Phonons):
             file (ending with .json), which must be deleted before restarting the
             job. Otherwise the calculation for that displacement will not be done.
         """
-        self.comm.barrier()
+        self.mpi_comm.barrier()
         # check tasks_indices
         assert set(mpi_task_indices) <= set(self.indices), f"{mpi_task_indices=} should be a subset of {self.indices=}"
         print(f"rank={self.mpi_rank}, {mpi_task_indices=}")
