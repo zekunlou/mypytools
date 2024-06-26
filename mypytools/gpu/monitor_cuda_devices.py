@@ -6,7 +6,9 @@ import time
 import numpy
 
 
-def monitor_gpus(interval: float = 10, duration: float = 24 * 3600, log_fpath="gpu_usage.log"):
+def monitor_gpus(
+    interval: float = 10, duration: float = 24 * 3600, log_fpath="gpu_usage.log"
+):
     from nvitop import Device
 
     start_time = time.time()
@@ -30,13 +32,14 @@ def monitor_gpus(interval: float = 10, duration: float = 24 * 3600, log_fpath="g
             time.sleep(interval)
 
 
-def moving_average(x:numpy.ndarray, w:int):
+def moving_average(x: numpy.ndarray, w: int):
     if isinstance(w, int):
-        return numpy.convolve(x, numpy.ones(w), 'same') / w
+        return numpy.convolve(x, numpy.ones(w), "same") / w
     else:
         return x
 
-def visualize_gpus_usage(log_fpath: str, moving_avg:int=None, ax=None):
+
+def visualize_gpus_usage(log_fpath: str, moving_avg: int = None, ax=None):
     import matplotlib.pyplot as plt
     import pandas
 
@@ -63,7 +66,7 @@ def visualize_gpus_usage(log_fpath: str, moving_avg:int=None, ax=None):
             moving_average(grp["gpu_utilization"], moving_avg),
             color=f"C{color_idx}",
             linestyle="solid",
-            label=f"GPU {key}"
+            label=f"GPU {key}",
         )
         ax[0].plot(
             grp.index,
@@ -83,8 +86,19 @@ def visualize_gpus_usage(log_fpath: str, moving_avg:int=None, ax=None):
     # Plot Memory Usage
     gpus_mem_max = 0
     for color_idx, (key, grp) in enumerate(df.groupby("gpu_id")):
-        ax[1].plot(grp.index, grp["memory_used"] / 1024**3, color=f"C{color_idx}", label=f"GPU {key}")
-        ax[1].axhline(grp["memory_total"].iloc[0] / 1024**3, min(grp.index), max(grp.index), linestyle="dotted", color=f"C{color_idx}")
+        ax[1].plot(
+            grp.index,
+            grp["memory_used"] / 1024**3,
+            color=f"C{color_idx}",
+            label=f"GPU {key}",
+        )
+        ax[1].axhline(
+            grp["memory_total"].iloc[0] / 1024**3,
+            min(grp.index),
+            max(grp.index),
+            linestyle="dotted",
+            color=f"C{color_idx}",
+        )
         gpus_mem_max = max(grp["memory_total"].iloc[0] / 1024**3, gpus_mem_max)
 
     ax[1].set_title("Memory Used (GB)")
@@ -96,11 +110,26 @@ def visualize_gpus_usage(log_fpath: str, moving_avg:int=None, ax=None):
 
     return df
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Monitor NVIDIA GPU status")
-    parser.add_argument("--interval", "-i", type=float, default=10.0, help="Recording time interval in seconds")
-    parser.add_argument("--duration", "-d", type=float, default=24 * 3600.0, help="Maximum monitoring duration in seconds")
-    parser.add_argument("--log_fpath", "-l", type=str, default="gpu_usage.log", help="Logging file path")
+    parser.add_argument(
+        "--interval",
+        "-i",
+        type=float,
+        default=10.0,
+        help="Recording time interval in seconds",
+    )
+    parser.add_argument(
+        "--duration",
+        "-d",
+        type=float,
+        default=24 * 3600.0,
+        help="Maximum monitoring duration in seconds",
+    )
+    parser.add_argument(
+        "--log_fpath", "-l", type=str, default="gpu_usage.log", help="Logging file path"
+    )
     args = parser.parse_args()
 
     monitor_gpus(**vars(args))

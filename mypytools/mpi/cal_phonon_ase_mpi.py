@@ -9,14 +9,13 @@ import pickle
 import shutil
 import time
 from pprint import pprint
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import numpy
 import yaml
 from ase.io import read, write
 from ase.optimize import BFGS
-from ase.phonons import Phonons
 from mace.calculators import MACECalculator
 from mypytools.mpi.phonons import PhononsMPI
 from mypytools.mpi.utils import distribute_work, load_mpi, load_print_func, set_num_cpus
@@ -34,7 +33,7 @@ def main(
     device: str = "cpu",
     cpus: int = None,
 ):
-    """ NOTE: must use MPI!!! """
+    """NOTE: must use MPI!!!"""
     """ preparations """
     comm, size, rank = load_mpi()
     print = load_print_func()
@@ -77,7 +76,6 @@ def main(
         comm.barrier()
         atoms = read(xyz_relaxed_fpath)
 
-
     ph = PhononsMPI(
         atoms=atoms,
         calc=calc_mace,
@@ -88,7 +86,7 @@ def main(
     ph.setup_mpi()
 
     if rank == 0:
-        my_task_indexes:List[List[int]] = distribute_work(ph.indices, size)
+        my_task_indexes: List[List[int]] = distribute_work(ph.indices, size)
     else:
         my_task_indexes = None
     my_task_indexes: List[int] = comm.scatter(my_task_indexes, root=0)
@@ -111,9 +109,9 @@ def main(
             npoints=band_npoints,
             pbc=[True, True, False],  # for slabs
             special_points={  # for hexagon cell with gamma = 60.0 deg
-                'G': numpy.array([0.0, 0.0, 0.0]),
-                'M': numpy.array([1/2, 1/2, 0.0]),
-                'K': numpy.array([1/3, 2/3, 0.0]),
+                "G": numpy.array([0.0, 0.0, 0.0]),
+                "M": numpy.array([1 / 2, 1 / 2, 0.0]),
+                "K": numpy.array([1 / 3, 2 / 3, 0.0]),
             },
         )
         print(kpath)
@@ -124,7 +122,9 @@ def main(
         bs = ph.get_band_structure(kpath)
         print(f"band calculation time: {time.time() - start_time:.2f}s")
 
-        numpy.save((tmp_fpath := os.path.join(work_dpath, "ph_force_constant.npy")), ph.C_N)
+        numpy.save(
+            (tmp_fpath := os.path.join(work_dpath, "ph_force_constant.npy")), ph.C_N
+        )
         print("force constant saved to", tmp_fpath)
         with open((tmp_fpath := os.path.join(work_dpath, "ph_bandstr.pkl")), "wb") as f:
             pickle.dump(bs, f)
@@ -144,6 +144,7 @@ def main(
 
     comm.barrier()
     print("finished, exit")
+
 
 def int_or_None(s):
     if s is None or s.lower() == "none":
@@ -166,7 +167,9 @@ def float_or_None(s):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="calculate phonon by ASE and MACE with MPI")
+    parser = argparse.ArgumentParser(
+        description="calculate phonon by ASE and MACE with MPI"
+    )
     parser.add_argument(
         "--work_dpath", "-o", type=str, required=True, help="output directory"
     )
