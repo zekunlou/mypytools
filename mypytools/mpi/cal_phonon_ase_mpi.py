@@ -221,5 +221,6 @@ if __name__ == "__main__":
         os.makedirs(args.work_dpath, exist_ok=True)
         with open(os.path.join(args.work_dpath, "input_parameters.yaml"), "w") as f:
             yaml.dump(vars(args), f)
+        print(vars(args), flush=True)
 
     main(**vars(args))
