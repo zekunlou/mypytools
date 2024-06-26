@@ -8,6 +8,7 @@ import os
 import pickle
 import shutil
 import time
+from pprint import pprint
 from typing import Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
@@ -221,6 +222,6 @@ if __name__ == "__main__":
         os.makedirs(args.work_dpath, exist_ok=True)
         with open(os.path.join(args.work_dpath, "input_parameters.yaml"), "w") as f:
             yaml.dump(vars(args), f)
-        print(vars(args), flush=True)
+        pprint(vars(args))
 
     main(**vars(args))

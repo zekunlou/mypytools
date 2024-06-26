@@ -3,6 +3,8 @@ import json
 import os
 import time
 
+import numpy
+
 
 def monitor_gpus(interval: float = 10, duration: float = 24 * 3600, log_fpath="gpu_usage.log"):
     from nvitop import Device
@@ -28,7 +30,13 @@ def monitor_gpus(interval: float = 10, duration: float = 24 * 3600, log_fpath="g
             time.sleep(interval)
 
 
-def visualize_gpus_usage(log_fpath: str, ax=None):
+def moving_average(x:numpy.ndarray, w:int):
+    if isinstance(w, int):
+        return numpy.convolve(x, numpy.ones(w), 'same') / w
+    else:
+        return x
+
+def visualize_gpus_usage(log_fpath: str, moving_avg:int=None, ax=None):
     import matplotlib.pyplot as plt
     import pandas
 
@@ -48,24 +56,41 @@ def visualize_gpus_usage(log_fpath: str, ax=None):
         fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(12, 10), sharex=True)
 
     # Plot GPU Utilization and Temperature
-    for key, grp in df.groupby("gpu_id"):
-        ax[0].plot(grp.index, grp["gpu_utilization"], label=f"GPU {key} Utilization")
-        ax[0].plot(grp.index, grp["temperature"], label=f"GPU {key} Temperature", linestyle="--")
+    # for key, grp in df.groupby("gpu_id"):
+    for color_idx, (key, grp) in enumerate(df.groupby("gpu_id")):
+        ax[0].plot(
+            grp.index,
+            moving_average(grp["gpu_utilization"], moving_avg),
+            color=f"C{color_idx}",
+            linestyle="solid",
+            label=f"GPU {key}"
+        )
+        ax[0].plot(
+            grp.index,
+            moving_average(grp["temperature"], moving_avg),
+            color=f"C{color_idx}",
+            linestyle="dashed",
+            # label=f"GPU {key} Temperature"
+        )
 
     ax[0].set_title("GPU Utilization (%) and Temperature (C)")
     ax[0].set_ylabel("Percentage / Degree")
     ax[0].set_xlim(min(grp.index), max(grp.index))
+    ax[0].set_ylim(0, 100)
     ax[0].grid()
     ax[0].legend()
 
     # Plot Memory Usage
+    gpus_mem_max = 0
     for color_idx, (key, grp) in enumerate(df.groupby("gpu_id")):
         ax[1].plot(grp.index, grp["memory_used"] / 1024**3, color=f"C{color_idx}", label=f"GPU {key}")
         ax[1].axhline(grp["memory_total"].iloc[0] / 1024**3, min(grp.index), max(grp.index), linestyle="dotted", color=f"C{color_idx}")
+        gpus_mem_max = max(grp["memory_total"].iloc[0] / 1024**3, gpus_mem_max)
 
     ax[1].set_title("Memory Used (GB)")
     ax[1].set_ylabel("Memory (GB)")
     ax[1].set_xlim(min(grp.index), max(grp.index))
+    ax[1].set_ylim(0, gpus_mem_max)
     ax[1].grid()
     ax[1].legend()
 
