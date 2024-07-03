@@ -20,6 +20,7 @@ dependencies = [
     "pytest>=7.0.0",
     "tomli>=1.0.0",
     "ase>=3.22.1",
+    "nvitop",
 ]
 
 [project.optional-dependencies]
