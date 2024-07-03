@@ -224,6 +224,8 @@ def gen_twisted_bilayer(
     supercell_comb.positions[:, 2] -= numpy.mean(supercell_comb.positions[:, 2]) - supercell_z / 2
     supercell_comb.wrap()
     supercell_comb.info["twist_angle"] = twist_angle
+    supercell_comb.info["twist_m"] = m
+    supercell_comb.info["twist_r"] = r
     return supercell_comb
 
 
