@@ -16,6 +16,7 @@ import numpy
 import yaml
 from ase.io import read, write
 from ase.optimize import BFGS
+from ase.phonons import Phonons
 from mace.calculators import MACECalculator
 from mypytools.mpi.phonons import PhononsMPI
 from mypytools.mpi.utils import distribute_work, load_mpi, load_print_func, set_num_cpus
@@ -74,7 +75,27 @@ def main(
             opt = None
         """write to file and reload"""
         comm.barrier()
-        atoms = read(xyz_relaxed_fpath)
+        if rank == 0:
+            atoms = read(xyz_relaxed_fpath)
+        else:
+            atoms = None
+        atoms = comm.bcast(atoms, root=0)  # ensure all ranks have the same atoms
+        # if rank == 0:
+        #     print(atoms.get_positions())
+        #     # atoms = read(xyz_relaxed_fpath)
+        # comm.barrier()
+        # if rank == 1:
+        #     print(atoms.get_positions())
+        #     # atoms = read(xyz_relaxed_fpath)
+        # comm.barrier()
+        # if rank == 2:
+        #     print(atoms.get_positions())
+        #     # atoms = read(xyz_relaxed_fpath)
+        # comm.barrier()
+        # if rank == 3:
+        #     print(atoms.get_positions())
+        #     # atoms = read(xyz_relaxed_fpath)
+        # comm.barrier()
 
     ph = PhononsMPI(
         atoms=atoms,
@@ -100,6 +121,16 @@ def main(
         print(f"finite difference calculation time: {time.time() - start_time:.2f} s")
 
     if rank == 0:
+        """ HACK: reinit the phonon object,
+        continue using the PhononsMPI will lead to differenc force constant, but IDK WHY??? """
+        print("re-init the phonon object for force constant consistency")
+        ph = Phonons(
+            atoms=atoms,
+            calc=calc_mace,
+            supercell=(supercell, supercell, 1),
+            delta=displacement,
+            name=cache_dir,
+        )
         ph.read(acoustic=True)
         if clean_cache:
             print("cleaning cache")
