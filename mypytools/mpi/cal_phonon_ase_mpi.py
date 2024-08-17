@@ -123,7 +123,7 @@ def main(
         print(f"band calculation time: {time.time() - start_time:.2f}s")
 
         numpy.save(
-            (tmp_fpath := os.path.join(work_dpath, "ph_force_constant.npy")), ph.C_N
+            (tmp_fpath := os.path.join(work_dpath, "ph_force_constant.npy")), ph.get_force_constant()
         )
         print("force constant saved to", tmp_fpath)
         with open((tmp_fpath := os.path.join(work_dpath, "ph_bandstr.pkl")), "wb") as f:
@@ -197,7 +197,7 @@ if __name__ == "__main__":
         "--displacement",
         "-dp",
         type=float,
-        default=0.05,
+        default=0.01,
         help="displacement for force calculation",
     )
     parser.add_argument(
