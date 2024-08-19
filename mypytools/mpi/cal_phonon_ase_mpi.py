@@ -135,6 +135,11 @@ def main(
         if clean_cache:
             print("cleaning cache")
             ph.clean()
+        numpy.save(
+            (tmp_fpath := os.path.join(work_dpath, "ph_force_constant.npy")), ph.get_force_constant()
+        )
+        print("force constant saved to", tmp_fpath)
+
         kpath = atoms.cell.bandpath(
             "KGMK",
             npoints=band_npoints,
@@ -153,10 +158,6 @@ def main(
         bs = ph.get_band_structure(kpath)
         print(f"band calculation time: {time.time() - start_time:.2f}s")
 
-        numpy.save(
-            (tmp_fpath := os.path.join(work_dpath, "ph_force_constant.npy")), ph.get_force_constant()
-        )
-        print("force constant saved to", tmp_fpath)
         with open((tmp_fpath := os.path.join(work_dpath, "ph_bandstr.pkl")), "wb") as f:
             pickle.dump(bs, f)
         print("band structure saved to", tmp_fpath)
