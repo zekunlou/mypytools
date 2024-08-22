@@ -112,15 +112,13 @@ def gen_sliding_bilayer(
     elif isinstance(shake_all_atoms, dict):  # e.g. {"Zr": 2.0, "S": 1.0}
         species_names = set(cell_comb.get_chemical_symbols())
         assert species_names == set(shake_all_atoms.keys())
-        species_masses:Dict[str, float] = {s: atomic_masses[symbols2numbers(s)[0]] for s in species_names}
-        species_idx = {
-            s: numpy.where(numpy.array(cell_comb.get_chemical_symbols()) == s)[0]
-            for s in species_names
-        }
+        species_masses: Dict[str, float] = {s: atomic_masses[symbols2numbers(s)[0]] for s in species_names}
+        species_idx = {s: numpy.where(numpy.array(cell_comb.get_chemical_symbols()) == s)[0] for s in species_names}
         shake_val = numpy.zeros_like(cell_comb.positions)
         for s in species_names:
-            shake_val[species_idx[s]] = shake_all_atoms[s] * numpy.random.randn(len(species_idx[s]), 3) \
-                * (species_masses[s] ** (-0.5))
+            shake_val[species_idx[s]] = (
+                shake_all_atoms[s] * numpy.random.randn(len(species_idx[s]), 3) * (species_masses[s] ** (-0.5))
+            )
         cell_comb.positions += shake_val
     else:
         raise ValueError(f"shake_all_atoms {shake_all_atoms} not supported, should be float or dict")
@@ -133,12 +131,13 @@ def gen_sliding_bilayer(
 
 def gen_twisted_bilayer(
     cell_prim: Atoms,
-    m:int,
-    r:int,
+    m: int,
+    r: int,
     z_dist: float,
     conj: Union[Literal["AA"], Literal["AB"], Literal["AA'"]],
     shake_upper_layer_z: Union[None, float] = None,
     shake_all_atoms: Union[None, float] = None,
+    wrap: bool = True,
     seed: Union[None, int] = None,
 ):
     """generate twisted bilayer, for hexagonal lattice only!
@@ -181,17 +180,17 @@ def gen_twisted_bilayer(
     """
     if seed is not None:
         numpy.random.seed(seed)
-    assert numpy.allclose(cell_prim.get_cell()[[2,2,0,1], [0,1,2,2]], 0)
+    assert numpy.allclose(cell_prim.get_cell()[[2, 2, 0, 1], [0, 1, 2, 2]], 0)
     twist_property = get_twist_property(m, r)
     twist_angle = twist_property["angle"]
-    supercell_matrix = numpy.diag([1,1,1])
-    supercell_matrix[:2,:2] = twist_property["suplat_trans"]
+    supercell_matrix = numpy.diag([1, 1, 1])
+    supercell_matrix[:2, :2] = twist_property["suplat_trans"]
     """ generate the bottom layer """
-    supercell0 = make_supercell(cell_prim, supercell_matrix)
-    supercell0.cell[2,2] = 6 * z_dist if 6 * z_dist > 100 else 100
+    supercell0 = make_supercell(cell_prim, supercell_matrix, wrap=wrap)
+    supercell0.cell[2, 2] = 6 * z_dist if 6 * z_dist > 100 else 100
     supercell0_point = supercell0.get_cell()[:2, :2].sum(axis=0)
     theta = numpy.arctan(supercell0_point[1] / supercell0_point[0]) / numpy.pi * 180
-    supercell0.rotate(-theta, 'z', rotate_cell=True)  # align the furthest cell vertex to x-axis
+    supercell0.rotate(-theta, "z", rotate_cell=True)  # align the furthest cell vertex to x-axis
     """ generate the top layer """
     supercell1 = supercell0.copy()
     supercell1.positions[:, 1] *= -1  # invert y-axis
@@ -203,16 +202,16 @@ def gen_twisted_bilayer(
         supercell1.positions[:, 2] = 2 * supercell1_z_mean - supercell1.positions[:, 2]
     elif conj == "AA'":
         supercell0_point = supercell1.get_cell()[:2, :2].sum(axis=0)
-        supercell1.positions[:,:2] = supercell0_point - supercell1.positions[:,:2]
+        supercell1.positions[:, :2] = supercell0_point - supercell1.positions[:, :2]
     """ shake upper layer z coordinate, only upper layer """
     supercell1.positions[:, 2] += z_dist  # lift the top layer
     if shake_upper_layer_z is not None:
-        assert numpy.allclose(cell_prim.get_cell()[[2,2,0,1], [0,1,2,2]], 0)
+        assert numpy.allclose(cell_prim.get_cell()[[2, 2, 0, 1], [0, 1, 2, 2]], 0)
         shake_val = shake_upper_layer_z * numpy.random.randn()
         supercell1.positions[:, 2] += shake_val
     """ combine the two layers, rotate to ipi format """
     supercell_comb = supercell0 + supercell1
-    supercell_comb.rotate(30, 'z', rotate_cell=True)
+    supercell_comb.rotate(30, "z", rotate_cell=True)
     """ shake atoms """
     if shake_all_atoms is not None:
         assert isinstance(shake_all_atoms, float)
@@ -222,7 +221,8 @@ def gen_twisted_bilayer(
     """ center the cell and wrap up """
     supercell_z = supercell_comb.cell[2, 2]
     supercell_comb.positions[:, 2] -= numpy.mean(supercell_comb.positions[:, 2]) - supercell_z / 2
-    supercell_comb.wrap()
+    if wrap:
+        supercell_comb.wrap()
     supercell_comb.info["twist_angle"] = twist_angle
     supercell_comb.info["twist_m"] = m
     supercell_comb.info["twist_r"] = r
@@ -293,6 +293,14 @@ def get_twist_property(m: int, r: int):
         "angle": angle,  # fix one lattice, rotate the other
         "suplat_trans": suplat,  # the superlattice follows this transformation
     }
+
+
+def get_twist_property_3d(*args, **kwargs):
+    ret = get_twist_property(*args, **kwargs)
+    trans_mat = numpy.diag([1, 1, 1])
+    trans_mat[:2, :2] = ret["suplat_trans"]
+    ret["suplat_trans"] = trans_mat
+    return ret
 
 
 class ExtendHexagon2D:
