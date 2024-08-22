@@ -94,6 +94,8 @@ def main(
         xyz_relaxed_fpath = os.path.join(work_dpath, "relaxed.xyz")
         if reuse_relaxed and os.path.exists(xyz_relaxed_fpath):
             atoms = mpi_read_atoms(xyz_relaxed_fpath, comm, rank)
+            if rank == 0:
+                print("reuse relaxed structure")
         else:
             if rank == 0:
                 start_time = time.time()
