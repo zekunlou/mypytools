@@ -18,15 +18,44 @@ from ase.io import read, write
 from ase.optimize import BFGS
 from ase.phonons import Phonons
 from mace.calculators import MACECalculator
+
 from mypytools.mpi.phonons import PhononsMPI
 from mypytools.mpi.utils import distribute_work, load_mpi, load_print_func, set_num_cpus
 
+
+def mpi_read_atoms(fpath:str, comm, rank):
+    assert os.path.exists(fpath)
+    """write to file and reload"""
+    comm.barrier()
+    if rank == 0:
+        atoms = read(fpath)
+    else:
+        atoms = None
+    atoms = comm.bcast(atoms, root=0)  # ensure all ranks have the same atoms
+    return atoms
+    # if rank == 0:
+    #     print(atoms.get_positions())
+    #     # atoms = read(xyz_relaxed_fpath)
+    # comm.barrier()
+    # if rank == 1:
+    #     print(atoms.get_positions())
+    #     # atoms = read(xyz_relaxed_fpath)
+    # comm.barrier()
+    # if rank == 2:
+    #     print(atoms.get_positions())
+    #     # atoms = read(xyz_relaxed_fpath)
+    # comm.barrier()
+    # if rank == 3:
+    #     print(atoms.get_positions())
+    #     # atoms = read(xyz_relaxed_fpath)
+    # comm.barrier()
 
 def main(
     work_dpath: str,
     model_fpath: str,
     xyz_fpath: str,
     relax: Optional[float] = 1e-5,
+    reuse_relaxed: bool = True,
     supercell: int = 1,
     displacement: float = 0.01,
     clean_cache: bool = False,
@@ -63,39 +92,20 @@ def main(
     """ do relaxation """
     if isinstance(relax, float):
         xyz_relaxed_fpath = os.path.join(work_dpath, "relaxed.xyz")
-        if rank == 0:
-            start_time = time.time()
-            atoms.calc = calc_mace
-            opt = BFGS(atoms, logfile=None)
-            print(f"start relaxation with fmax={relax}")
-            opt.run(fmax=relax)
-            print(f"relaxation time: {time.time() - start_time:.2f} s")
-            write(xyz_relaxed_fpath, atoms)
+        if reuse_relaxed and os.path.exists(xyz_relaxed_fpath):
+            atoms = mpi_read_atoms(xyz_relaxed_fpath, comm, rank)
         else:
-            opt = None
-        """write to file and reload"""
-        comm.barrier()
-        if rank == 0:
-            atoms = read(xyz_relaxed_fpath)
-        else:
-            atoms = None
-        atoms = comm.bcast(atoms, root=0)  # ensure all ranks have the same atoms
-        # if rank == 0:
-        #     print(atoms.get_positions())
-        #     # atoms = read(xyz_relaxed_fpath)
-        # comm.barrier()
-        # if rank == 1:
-        #     print(atoms.get_positions())
-        #     # atoms = read(xyz_relaxed_fpath)
-        # comm.barrier()
-        # if rank == 2:
-        #     print(atoms.get_positions())
-        #     # atoms = read(xyz_relaxed_fpath)
-        # comm.barrier()
-        # if rank == 3:
-        #     print(atoms.get_positions())
-        #     # atoms = read(xyz_relaxed_fpath)
-        # comm.barrier()
+            if rank == 0:
+                start_time = time.time()
+                atoms.calc = calc_mace
+                opt = BFGS(atoms, logfile=None)
+                print(f"start relaxation with fmax={relax}")
+                opt.run(fmax=relax)
+                print(f"relaxation time: {time.time() - start_time:.2f} s")
+                write(xyz_relaxed_fpath, atoms)
+            else:
+                opt = None
+            atoms = mpi_read_atoms(xyz_relaxed_fpath, comm, rank)
 
     ph = PhononsMPI(
         atoms=atoms,
@@ -221,6 +231,13 @@ if __name__ == "__main__":
         type=float_or_None,
         default=None,
         help="relaxation factor, None for no relaxation",
+    )
+    parser.add_argument(
+        "--reuse_relaxed",
+        "-u",
+        type=bool,
+        default=True,
+        help="reuse the relaxed structure named 'relaxed.xyz' in the work_dpath",
     )
     parser.add_argument(
         "--supercell", "-s", type=int, default=1, help="bilayer Oxy plane supercell"
