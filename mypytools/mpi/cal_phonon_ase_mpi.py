@@ -16,10 +16,9 @@ import matplotlib.pyplot as plt
 import numpy
 import yaml
 from ase.io import read, write
-from ase.optimize import BFGS
+from ase.optimize import BFGS, FIRE
 from ase.phonons import Phonons
 from mace.calculators import MACECalculator
-
 from mypytools.mpi.phonons import PhononsMPI
 from mypytools.mpi.utils import distribute_work, load_mpi, load_print_func, set_num_cpus
 
@@ -55,8 +54,6 @@ def main(
     work_dpath: str,
     model_fpath: str,
     xyz_fpath: str,
-    relax: Optional[float] = 1e-5,
-    reuse_relaxed: bool = True,
     supercell: int = 1,
     displacement: float = 0.01,
     clean_cache: bool = False,
@@ -89,27 +86,7 @@ def main(
         device=device,
         default_dtype="float64",
     )
-    atoms = read(xyz_fpath)
-
-    """ do relaxation """
-    if isinstance(relax, float):
-        xyz_relaxed_fpath = os.path.join(work_dpath, "relaxed.xyz")
-        if reuse_relaxed and os.path.exists(xyz_relaxed_fpath):
-            if rank == 0:
-                print("reuse relaxed structure")
-            atoms = mpi_read_atoms(xyz_relaxed_fpath, comm, rank)
-        else:
-            if rank == 0:
-                start_time = time.time()
-                atoms.calc = calc_mace
-                opt = BFGS(atoms, logfile=None)
-                print(f"start relaxation with fmax={relax}")
-                opt.run(fmax=relax)
-                print(f"relaxation time: {time.time() - start_time:.2f} s")
-                write(xyz_relaxed_fpath, atoms)
-            else:
-                opt = None
-            atoms = mpi_read_atoms(xyz_relaxed_fpath, comm, rank)
+    atoms = mpi_read_atoms(xyz_fpath, comm, rank)
 
     """ print to check if atoms are the same """
     if verbose:
@@ -231,26 +208,13 @@ def float_or_None(s):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="calculate phonon by ASE and MACE with MPI")
     parser.add_argument("--work_dpath", "-o", type=str, required=True, help="output directory")
-    parser.add_argument("--model_fpath", "-m", type=str, required=True, help="model file path")
+    parser.add_argument("--model_fpath", "-p", type=str, required=True, help="model file path")
     parser.add_argument(
         "--xyz_fpath",
         "-i",
         type=str,
         required=True,
         help="xyz_fpath file, should be .xyz",
-    )
-    parser.add_argument(
-        "--relax",
-        "-r",
-        type=float_or_None,
-        default=None,
-        help="relaxation factor, None for no relaxation",
-    )
-    parser.add_argument(
-        "--reuse_relaxed",
-        "-u",
-        action="store_true",
-        help="reuse the relaxed structure named 'relaxed.xyz' exists in the work_dpath",
     )
     parser.add_argument("--supercell", "-s", type=int, default=1, help="bilayer Oxy plane supercell")
     parser.add_argument(
@@ -263,7 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--clean_cache", "-cc", action="store_true", help="clean cache directory")
     parser.add_argument(
         "--band_npoints",
-        "-p",
+        "-n",
         type=int,
         default=100,
         help="number of points in the kpath",
