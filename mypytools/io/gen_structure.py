@@ -10,6 +10,72 @@ from ase.symbols import symbols2numbers
 _log = logging.getLogger(__name__)
 
 
+def slide_twisted_bilayer(
+    atoms: Atoms,
+    n1: int,
+    n2: int,
+    z_dist: float,
+    shake_upper_layer_z: Union[None, float] = None,
+    slide_lower_layer_xy: Union[None, float] = None,
+    shake_all_atoms: Union[None, float] = None,
+    seed: Union[None, int] = None,
+):
+    """slide the twisted bilayer, no twisting, just want to mimic thermal fluctuation
+    Args:
+        atoms: Atoms, the twisted bilayer cell
+        n1: int, supercell size in the first lattice vector
+        n2: int, supercell size in the second lattice vector
+        z_dist: float, distance between two layers
+        shake_upper_layer_z: float, shake upper layer z coordinate
+        slide_lower_layer_xy: float, slide lower layer xy coordinate
+        shake_all_atoms: float, shake all atoms
+        seed: int, random seed for reproducibility
+    """
+    if seed is not None:
+        numpy.random.seed(seed)
+    """make supercell"""
+    cell_sup = make_supercell(atoms, [[n1, 0, 0], [0, n2, 0], [0, 0, 1]])
+    cell_sup.cell[2, 2] = z_dist if z_dist > 100 else 100
+    cell_midz = numpy.mean(cell_sup.positions[:, 2])
+    layer_lower_idxes = numpy.where(cell_sup.positions[:, 2] < cell_midz)[0]
+    layer_upper_idxes = numpy.where(cell_sup.positions[:, 2] >= cell_midz)[0]
+    layer_lower = cell_sup[layer_lower_idxes].copy()
+    layer_upper = cell_sup[layer_upper_idxes].copy()
+    interlayer_z_old = numpy.mean(layer_upper.positions[:, 2]) - numpy.mean(layer_lower.positions[:, 2])
+    layer_upper.positions[:, 2] += (z_dist - interlayer_z_old)
+    """glide upper layer"""
+    glide_vec = numpy.sum(atoms.get_cell()[:2] * numpy.random.rand(2).reshape(2, 1), axis=0)
+    layer_upper.positions += glide_vec.reshape(1, 3)
+    """glide lower layer"""
+    if slide_lower_layer_xy is not None:
+        assert isinstance(slide_lower_layer_xy, float)
+        glide_vec = numpy.sum(atoms.get_cell()[:2] * slide_lower_layer_xy, axis=0)
+        layer_lower.positions += glide_vec.reshape(1, 3)
+    """shake upper layer z coordinate, only upper layer"""
+    if shake_upper_layer_z is not None:
+        assert isinstance(shake_upper_layer_z, float)
+        shake_val = shake_upper_layer_z * numpy.random.randn()
+        layer_upper.positions[:, 2] += shake_val
+    """combine the two layers"""
+    atoms_comb = Atoms(
+        symbols=layer_lower.get_chemical_symbols() + layer_upper.get_chemical_symbols(),
+        positions=numpy.concatenate([layer_lower.positions, layer_upper.positions], axis=0),
+        cell=cell_sup.cell,
+        pbc=cell_sup.pbc,
+    )
+    """shake all atoms"""
+    if shake_all_atoms is not None:
+        assert isinstance(shake_all_atoms, float)
+        M = atoms_comb.get_masses()
+        shake_val = shake_all_atoms * numpy.random.randn(*atoms_comb.positions.shape) * (M ** (-0.5)).reshape(-1, 1)
+        atoms_comb.positions += shake_val
+    atoms_comb.wrap()
+    """center the cell"""
+    cell_z = atoms_comb.cell[2, 2]
+    atoms_comb.positions[:, 2] -= numpy.mean(atoms_comb.positions[:, 2]) - cell_z / 2
+    return atoms_comb
+
+
 def gen_sliding_bilayer(
     cell_prim: Atoms,
     n1: int,
