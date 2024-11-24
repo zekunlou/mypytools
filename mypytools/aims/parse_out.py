@@ -17,12 +17,12 @@ sometimes it will be like
 """
 
 
-def parse_aims_out(*args, **kwargs):
+def parse_energy(*args, **kwargs):
     version = kwargs.get("version", 241124)
     if "version" in kwargs:
         kwargs.pop("version")
     if version == 241124:
-        return parse_aims_out_241124(*args, **kwargs)
+        return parse_energy_241124(*args, **kwargs)
 
 
 _regexp_dict = {  # energy in eV
@@ -33,7 +33,7 @@ _regexp_dict = {  # energy in eV
 }
 
 
-def parse_aims_out_241124(fpath: str):
+def parse_energy_241124(fpath: str):
     """
     this function is used in viper salted/2406ppr
     match all patterns in regexp_dict, and take the last one
