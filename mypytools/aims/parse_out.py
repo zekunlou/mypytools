@@ -38,6 +38,8 @@ def parse_energy_241124(fpath: str):
     this function is used in viper salted/2406ppr
     match all patterns in regexp_dict, and take the last one
     if not found, return numpy.nan
+
+    the values are not averaged by number_of_atoms
     """
     with open(fpath) as f:
         content = f.read()
