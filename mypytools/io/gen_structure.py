@@ -330,7 +330,8 @@ def get_unique_arr(arr: numpy.ndarray, **kwargs) -> numpy.ndarray:
 
 def get_twist_property(m: int, r: int):
     """
-    based on article: Twisted bilayer graphene: Low-energy physics, ...
+    Equations from: (please check the appendix)
+    J. M. B. Lopes dos Santos, N. M. R. Peres, and A. H. Castro Neto, Continuum model of the twisted graphene bilayer, Phys. Rev. B 86, 155449 (2012).
     """
     # check coprime
     if numpy.gcd(m, r) != 1:
