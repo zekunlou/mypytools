@@ -8,11 +8,12 @@ class PhononsMPI(Phonons):
 
     def setup_mpi(self):
         from mpi4py import MPI
+
         self.mpi_comm = MPI.COMM_WORLD
         self.mpi_size = self.mpi_comm.Get_size()
         self.mpi_rank = self.mpi_comm.Get_rank()
 
-    def run(self, mpi_task_indices:List[int]):
+    def run(self, mpi_task_indices: List[int]):
         """Run finite difference calculation with MPI
 
         Modification by Zekun:
@@ -31,7 +32,7 @@ class PhononsMPI(Phonons):
         self.mpi_comm.barrier()
         # check tasks_indices
         assert set(mpi_task_indices) <= set(self.indices), f"{mpi_task_indices=} should be a subset of {self.indices=}"
-        print(f"rank={self.mpi_rank}: {mpi_task_indices=}")
+        # print(f"rank={self.mpi_rank}: {mpi_task_indices=}")
 
         # Atoms in the supercell -- repeated in the lattice vector directions
         # beginning with the last
@@ -43,7 +44,7 @@ class PhononsMPI(Phonons):
 
         # setup progress bar
         if self.mpi_rank == 0:
-            pbar = tqdm(total=len(self.indices)*6 + 1, desc="finite diff")  # eq included
+            pbar = tqdm(total=len(self.indices) * 6 + 1, desc="finite diff")  # eq included
             indices_finished_cnt = len([_ for _ in self.cache])
             pbar.update(indices_finished_cnt)
         else:
@@ -54,7 +55,7 @@ class PhononsMPI(Phonons):
         eq_disp = self._disp(0, 0, 0)
         # with self.cache.lock(f'{self.name}.eq') as handle:
         # only rank == size-1 calculate eq, because the latter tasks have fewer jobs
-        if self.mpi_rank == self.mpi_size-1:
+        if self.mpi_rank == self.mpi_size - 1:
             with self.cache.lock(eq_disp.name) as handle:
                 if handle is not None:
                     output = self(atoms_N)
@@ -65,7 +66,7 @@ class PhononsMPI(Phonons):
         # Positions of atoms to be displaced in the reference cell
         natoms = len(self.atoms)
         offset = natoms * self.offset
-        pos = atoms_N.positions[offset: offset + natoms].copy()
+        pos = atoms_N.positions[offset : offset + natoms].copy()
 
         # Loop over all displacements
         for a in self.indices:
@@ -88,8 +89,7 @@ class PhononsMPI(Phonons):
                         if handle is None:
                             continue
                         try:
-                            atoms_N.positions[offset + a, i] = \
-                                pos[a, i] + sign * self.delta
+                            atoms_N.positions[offset + a, i] = pos[a, i] + sign * self.delta
 
                             result = self.calculate(atoms_N, disp)
                             handle.save(result)

@@ -11,27 +11,56 @@ import time
 from pprint import pprint
 from typing import List, Optional
 
+import ase
 import matplotlib.pyplot as plt
 import numpy
 import yaml
 from ase.io import read, write
-from ase.optimize import BFGS
+from ase.optimize import BFGS, FIRE
+from ase.phonons import Phonons
 from mace.calculators import MACECalculator
 from mypytools.mpi.phonons import PhononsMPI
 from mypytools.mpi.utils import distribute_work, load_mpi, load_print_func, set_num_cpus
+
+
+def mpi_read_atoms(fpath: str, comm, rank) -> ase.Atoms:
+    """write to file and reload"""
+    if rank == 0:
+        atoms = read(fpath)
+    else:
+        atoms = None
+    comm.barrier()
+    atoms = comm.bcast(atoms, root=0)  # ensure all ranks have the same atoms
+    return atoms
+    # if rank == 0:
+    #     print(atoms.get_positions())
+    #     # atoms = read(xyz_relaxed_fpath)
+    # comm.barrier()
+    # if rank == 1:
+    #     print(atoms.get_positions())
+    #     # atoms = read(xyz_relaxed_fpath)
+    # comm.barrier()
+    # if rank == 2:
+    #     print(atoms.get_positions())
+    #     # atoms = read(xyz_relaxed_fpath)
+    # comm.barrier()
+    # if rank == 3:
+    #     print(atoms.get_positions())
+    #     # atoms = read(xyz_relaxed_fpath)
+    # comm.barrier()
 
 
 def main(
     work_dpath: str,
     model_fpath: str,
     xyz_fpath: str,
-    relax: Optional[float] = 1e-5,
     supercell: int = 1,
     displacement: float = 0.01,
     clean_cache: bool = False,
     band_npoints: int = 100,
     device: str = "cpu",
     cpus: int = None,
+    verbose: bool = False,
 ):
     """NOTE: must use MPI!!!"""
     """ preparations """
@@ -57,24 +86,15 @@ def main(
         device=device,
         default_dtype="float64",
     )
-    atoms = read(xyz_fpath)
+    atoms = mpi_read_atoms(xyz_fpath, comm, rank)
 
-    """ do relaxation """
-    if isinstance(relax, float):
-        xyz_relaxed_fpath = os.path.join(work_dpath, "relaxed.xyz")
-        if rank == 0:
-            start_time = time.time()
-            atoms.calc = calc_mace
-            opt = BFGS(atoms, logfile=None)
-            print(f"start relaxation with fmax={relax}")
-            opt.run(fmax=relax)
-            print(f"relaxation time: {time.time() - start_time:.2f} s")
-            write(xyz_relaxed_fpath, atoms)
-        else:
-            opt = None
-        """write to file and reload"""
-        comm.barrier()
-        atoms = read(xyz_relaxed_fpath)
+    """ print to check if atoms are the same """
+    if verbose:
+        for i in range(size):
+            comm.barrier()
+            if rank == i:
+                print("atom positions\n", atoms.get_positions())
+            comm.barrier()
 
     ph = PhononsMPI(
         atoms=atoms,
@@ -91,6 +111,13 @@ def main(
         my_task_indexes = None
     my_task_indexes: List[int] = comm.scatter(my_task_indexes, root=0)
 
+    if verbose:
+        for i in range(size):
+            comm.barrier()
+            if rank == i:
+                print("my_task_indexes\n", my_task_indexes)
+            comm.barrier()
+
     if rank == 0:
         start_time = time.time()
     else:
@@ -100,10 +127,26 @@ def main(
         print(f"finite difference calculation time: {time.time() - start_time:.2f} s")
 
     if rank == 0:
+        """
+        HACK: reinit the phonon object,
+        continue using the PhononsMPI will lead to differenc force constant,
+        but IDK WHY???
+        """
+        print("re-init the phonon object for force constant consistency")
+        ph = Phonons(
+            atoms=atoms,
+            calc=calc_mace,
+            supercell=(supercell, supercell, 1),
+            delta=displacement,
+            name=cache_dir,
+        )
         ph.read(acoustic=True)
         if clean_cache:
             print("cleaning cache")
             ph.clean()
+        numpy.save((tmp_fpath := os.path.join(work_dpath, "ph_force_constant.npy")), ph.get_force_constant())
+        print("force constant saved to", tmp_fpath)
+
         kpath = atoms.cell.bandpath(
             "KGMK",
             npoints=band_npoints,
@@ -119,13 +162,9 @@ def main(
 
         print("calculating band structure")
         start_time = time.time()
-        bs = ph.get_band_structure(kpath)
+        bs = ph.get_band_structure(kpath)  # verbose=verbose
         print(f"band calculation time: {time.time() - start_time:.2f}s")
 
-        numpy.save(
-            (tmp_fpath := os.path.join(work_dpath, "ph_force_constant.npy")), ph.C_N
-        )
-        print("force constant saved to", tmp_fpath)
         with open((tmp_fpath := os.path.join(work_dpath, "ph_bandstr.pkl")), "wb") as f:
             pickle.dump(bs, f)
         print("band structure saved to", tmp_fpath)
@@ -167,15 +206,9 @@ def float_or_None(s):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="calculate phonon by ASE and MACE with MPI"
-    )
-    parser.add_argument(
-        "--work_dpath", "-o", type=str, required=True, help="output directory"
-    )
-    parser.add_argument(
-        "--model_fpath", "-m", type=str, required=True, help="model file path"
-    )
+    parser = argparse.ArgumentParser(description="calculate phonon by ASE and MACE with MPI")
+    parser.add_argument("--work_dpath", "-o", type=str, required=True, help="output directory")
+    parser.add_argument("--model_fpath", "-p", type=str, required=True, help="model file path")
     parser.add_argument(
         "--xyz_fpath",
         "-i",
@@ -183,29 +216,18 @@ if __name__ == "__main__":
         required=True,
         help="xyz_fpath file, should be .xyz",
     )
-    parser.add_argument(
-        "--relax",
-        "-r",
-        type=float_or_None,
-        default=None,
-        help="relaxation factor, None for no relaxation",
-    )
-    parser.add_argument(
-        "--supercell", "-s", type=int, default=1, help="bilayer Oxy plane supercell"
-    )
+    parser.add_argument("--supercell", "-s", type=int, default=1, help="bilayer Oxy plane supercell")
     parser.add_argument(
         "--displacement",
         "-dp",
         type=float,
-        default=0.05,
+        default=0.01,
         help="displacement for force calculation",
     )
-    parser.add_argument(
-        "--clean_cache", "-cc", action="store_true", help="clean cache directory"
-    )
+    parser.add_argument("--clean_cache", "-cc", action="store_true", help="clean cache directory")
     parser.add_argument(
         "--band_npoints",
-        "-p",
+        "-n",
         type=int,
         default=100,
         help="number of points in the kpath",
@@ -218,6 +240,7 @@ if __name__ == "__main__":
         default=None,
         help="number of cpus to use, like OpenMP",
     )
+    parser.add_argument("--verbose", "-v", action="store_true", help="verbose output")
     args = parser.parse_args()
 
     """ save input parameters """
