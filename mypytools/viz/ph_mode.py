@@ -17,7 +17,7 @@ def generate_phonon_visuals(
     amp_factor: float = 1.0,
     comment: str = "",
 ) -> list[Atoms]:
-    """
+    """TODO: check and update the displacement equation
     Generate phonon frames for visualization.
     For postprocessing phonopy output for visualization.
 
@@ -39,6 +39,7 @@ def generate_phonon_visuals(
     Reference:
         Eq.27 in A. Togo, L. Chaput, T. Tadano, and I. Tanaka, Implementation strategies in phonopy and phono3py,
         J. Phys.: Condens. Matter 35, 353001 (2023).
+        Eq.3.20 in Peter Brueesch, Phonons: Theory and Experiments
     """
     assert ph_eigvec.ndim == 1, f"ph_eigvec should be a 1D array, but got {ph_eigvec.ndim}D"
     assert (
