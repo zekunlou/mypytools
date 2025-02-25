@@ -4,9 +4,6 @@ import numpy
 from ase import Atoms
 from ase.build import make_supercell
 
-# def viz_layer_mode(atoms: Atoms, mode: numpy.ndarray):
-#     assert mode.ndim == 2, "mode should be 2D array"  # (n_atoms, 3)
-
 
 def generate_phonon_visuals(
     atoms: Atoms,
@@ -17,9 +14,11 @@ def generate_phonon_visuals(
     amp_factor: float = 1.0,
     comment: str = "",
 ) -> list[Atoms]:
-    """TODO: check and update the displacement equation
-    Generate phonon frames for visualization.
-    For postprocessing phonopy output for visualization.
+    """
+    Generate phonon frames for visualization for postprocessing phonopy output for visualization.
+
+    Warning:
+        Only tested for Phonopy output!
 
     Note:
         The phonon eigenvectors should be like phonopy, i.e. bloch phase applied to each atom but not unit cell.
@@ -35,6 +34,28 @@ def generate_phonon_visuals(
 
     Returns:
         list: List of Atoms objects representing the frames.
+
+    Usage:
+    ```python
+    atoms = read("structure.xyz")
+    with h5py.File("phonopy.hdf5", "r") as f:  # extract the 0th k-path segment
+        ph_kpath_frac = h5["path"][0, :]  # shape (nqpoints, 3)
+        ph_freqs = h5["frequency"][0, :]  # shape (nqpoints, nbands)
+        ph_eigvecs = h5["eigenvector"][0, :]  # shape (nqpoints, natoms*3, nbands)
+    ph_kpath = ph_kpath_frac @ atoms.cell.reciprocal()  # without 2*pi factor
+    kpt_idx, band_idx = 0, 0
+    ph_frames = generate_phonon_visuals(
+        atoms = atoms,
+        ph_eigvec = ph_eigvecs[kpt_idx, :, band_idx],
+        k = 2 * numpy.pi * ph_kpath[kpt_idx],
+        supecell = numpy.diag([3, 3, 1]),  # build 3x3x1 supercell
+        comment=f"seg=GK,kpt_idx={kpt_idx},band_idx={band_idx}",  # add comment
+    )
+    write("ph_frames.xyz", ph_frames)
+    ```
+
+    TODO:
+        Double check and update the displacement equation
 
     Reference:
         Eq.27 in A. Togo, L. Chaput, T. Tadano, and I. Tanaka, Implementation strategies in phonopy and phono3py,
