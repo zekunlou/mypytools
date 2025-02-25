@@ -48,7 +48,7 @@ def generate_phonon_visuals(
         atoms = atoms,
         ph_eigvec = ph_eigvecs[kpt_idx, :, band_idx],
         k = 2 * numpy.pi * ph_kpath[kpt_idx],
-        supecell = numpy.diag([3, 3, 1]),  # build 3x3x1 supercell
+        supercell = numpy.diag([3, 3, 1]),  # build 3x3x1 supercell
         comment=f"seg=GK,kpt_idx={kpt_idx},band_idx={band_idx}",  # add comment
     )
     write("ph_frames.xyz", ph_frames)
