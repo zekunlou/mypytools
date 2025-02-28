@@ -128,75 +128,6 @@ def compute_APR(
     masses_sqrt = numpy.sqrt(atoms.get_masses())  # shape (natoms,), unit u/Dalton
     eigvec_div_mass_sqrt = ph_eigvecs.reshape(nqpoints, natoms, 3, nbands) \
         / masses_sqrt[None, :, None, None]  # shape (nqpoints, natoms, 3, nbands)
-    eigvec_div_mass_sqrt = eigvec_div_mass_sqrt.reshape(nqpoints, natoms3, nbands)
-
-    # Compute the inner product (shape: nqpoints, natoms*3, natoms*3, nbands)
-    inner_prod = numpy.einsum(  # TODO: optimize memory usage here
-        "qAn,qBn->qABn",  # A, B: (alpha, beta) in flattened natoms*3
-        eigvec_div_mass_sqrt.conj(),
-        eigvec_div_mass_sqrt,
-    )
-
-    # Consider only upper triangular part where beta >= alpha
-    triu_indices = numpy.triu_indices(natoms3)  # shape (2, ntriu), ntriu = number of elems in triu
-    inner_prod_triu = inner_prod[:, triu_indices[0], triu_indices[1], :]  # shape (nqpoints, ntriu, nbands)
-
-    # Compute numerator: squared sum over upper triangular elements
-    numerator = numpy.abs(inner_prod_triu.sum(axis=1))**2  # shape (nqpoints, nbands)
-
-    # Compute denominator: sum over absolute values of upper triangular elements
-    denominator = numpy.sum(numpy.abs(inner_prod_triu), axis=1)  # shape (nqpoints, nbands)
-
-    # Compute APR
-    N = natoms
-    apr = (2 / (N * (N + 1))) * (numerator / denominator)  # shape (nqpoints, nbands)
-    del inner_prod
-    return apr
-
-
-def compute_APR2(
-    atoms: aseAtoms,
-    ph_eigvecs: numpy.ndarray,  # shape (nqpoints, natoms*3, nbands)
-) -> numpy.ndarray:
-    """
-    Compute acoustic participation ratio (APR) according to the Eq.(2) in the reference.
-
-    Args:
-        atoms (aseAtoms): ASE Atoms object containing atomic information.
-        ph_eigvecs (numpy.ndarray): Phonon eigenvectors with shape (nqpoints, natoms*3, nbands).
-
-    Returns:
-        numpy.ndarray: APR values with shape (nqpoints, nbands).
-
-    TODO:
-        Check if $e_{q,n}^alpha$ should or should not have Bloch phase factor.
-    """
-    r"""
-    Equation:
-    $$
-    APR_{q,n} = \frac{2}{N(N+1)} \frac{
-        \left|
-            \sum_{\alpha=1}^{N} \sum_{\beta=1}^{N}
-            \frac{(e_{q,n}^\alpha)^\dagger e_{q,n}^\beta}{\sqrt{m_\alpha m_\beta}}
-        \right|^2
-    }{
-        \sum_{\alpha=1}^{N} \sum_{\beta=1}^{N}
-        \left|
-            \frac{(e_{q,n}^\alpha)^\dagger e_{q,n}^\beta}{\sqrt{m_\alpha m_\beta}}
-        \right|^2
-    }
-    $$
-    q -> qpoints, n -> bands, N -> natoms, (alpha, beta) -> natoms*xyz
-    $e_{q,n}^\alpha$ -> phonon eigenvector for atom alpha at qpoint q and band n, has (x,y,z) components
-    """
-    nqpoints, natoms3, nbands = ph_eigvecs.shape
-    assert natoms3 % 3 == 0, "Number of phonon displacement basis is not a multiple of 3."
-    natoms = natoms3 // 3
-
-    # Normalize by mass
-    masses_sqrt = numpy.sqrt(atoms.get_masses())  # shape (natoms,), unit u/Dalton
-    eigvec_div_mass_sqrt = ph_eigvecs.reshape(nqpoints, natoms, 3, nbands) \
-        / masses_sqrt[None, :, None, None]  # shape (nqpoints, natoms, 3, nbands)
 
     # Compute the inner product (shape: nqpoints, natoms*3, natoms*3, nbands)
     inner_prod = numpy.einsum(  # TODO: optimize memory usage here
@@ -266,7 +197,7 @@ def compute_L(
     # Compute L, longitudinality
     lgt = numpy.einsum("qaxn,qx->qan", ph_eigvec_normed, q_normed)  # shape (nqpoints, natoms, nbands)
     lgt = lgt.mean(axis=1)  # shape (nqpoints, nbands)
-    lgt = numpy.abs(lgt)  # shape (nqpoints, nbands)
+    lgt = 2**0.5 * numpy.abs(lgt)  # shape (nqpoints, nbands), TODO: check why need 2**0.5 here
     return lgt
 
 
