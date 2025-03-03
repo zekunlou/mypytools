@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from typing import Dict, List, Union
 
@@ -285,3 +286,37 @@ def load_reduced_data(save_fpath: str):
         "reduced_data": reduced_data,
         "groups": groups,
     }
+
+
+def find_latest_logfile(dpath: str, task_name: str, tail: str = "out"):
+    logs = os.listdir(dpath)
+    if not task_name.endswith("."):
+        task_name += "."
+    if not tail.startswith("."):
+        tail = "." + tail
+    logs = [f for f in logs if (f.startswith(task_name) and f.endswith(tail))]
+    if len(logs) == 1:
+        out_fname = logs[0]
+    elif len(logs) > 1:
+        logs = sorted(logs, key=lambda x: int(x.rsplit(".", 2)[1]), reverse=True)  # take the latest one
+        out_fname = logs[0]
+    else:  # len = 0
+        raise FileNotFoundError(rf"No file named: {task_name}.\d+.{tail}")
+    return os.path.join(dpath, out_fname)
+
+
+def find_valid_rmse(fpath: str):
+    regexp = re.compile(r"\W% RMSE: (\d+\.\d+e[+-]\d+)\W")  # current
+    regexp2 = re.compile(r"summary: (\d+\.\d+e[+-]\d+) % RMSE")  # previous format
+    with open(fpath) as f:
+        for line in f:
+            m = regexp.match(line)
+            m2 = regexp2.match(line)
+            if m or m2:
+                break
+    if m is not None:
+        return eval(m.group(1))
+    elif m2 is not None:
+        return eval(m2.group(1))
+    else:
+        return numpy.nan
