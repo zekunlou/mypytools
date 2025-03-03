@@ -1,27 +1,14 @@
 {
     "[python]": {
-        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.formatOnSave": true,
-        "editor.codeActionsOnSave": {
-            "source.fixAll.ruff": "explicit",
-            "source.organizeImports.ruff": "explicit"
-        },
-        "editor.formatOnType": true,
+        // "editor.formatOnSave": true,
+        // "editor.codeActionsOnSave": {
+        //     "source.fixAll.ruff": "explicit",
+        //     "source.organizeImports.ruff": "explicit",
+        // },
     },
     "notebook.formatOnSave.enabled": false,
-    "notebook.codeActionsOnSave": {
-        "source.fixAll.ruff": false,
-        "source.organizeImports.ruff": true,
-    },
-    "ruff.lint.args": [
-        "--ignore=E402,F541",
-        "--line-length=120",
-        "--select=E,W,F,I,UP",
-        "--respect-gitignore"
-    ],
-    "black-formatter.args": [
-        "--line-length=120",
-    ],
     "python.analysis.packageIndexDepths": [
         {
             "name": "sklearn",
