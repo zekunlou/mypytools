@@ -1,3 +1,6 @@
+import os
+from typing import Union
+
 import numpy
 from ase.atoms import Atoms
 
@@ -39,3 +42,24 @@ def match_two_atoms(
     ret_dict["atoms_indices_b2a"] = numpy.argmin(atoms_dist, axis=1)  # a = b[atoms_indices_b2a]
 
     return ret_dict
+
+
+def geom_aims_insert_line(fpath: str, insert_lines: Union[str, list[str]]):
+    """Insert a line like `set_vacuum_level` to the geometry.in file of FHI-aims"""
+
+    # identify the last line starting with #, identify the first line starting with `atom` or `lattice_vector`
+    assert os.path.exists(fpath)
+    with open(fpath) as f:
+        lines = f.readlines()
+    last_comment_line = max([i for i, line in enumerate(lines) if line.startswith("#")])
+    first_geom_line = min(
+        [i for i, line in enumerate(lines) if line.startswith("atom") or line.startswith("lattice_vector")]
+    )
+    assert last_comment_line < first_geom_line, (
+        f"{last_comment_line=}, {first_geom_line=}, please check the file {fpath}"
+    )
+    if isinstance(insert_lines, str):
+        insert_lines = [insert_lines]
+    lines = lines[:first_geom_line] + insert_lines + lines[first_geom_line:]
+    with open(fpath, "w") as f:
+        f.writelines(lines)
