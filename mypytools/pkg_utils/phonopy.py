@@ -1,19 +1,19 @@
 import os
-import pickle
 from typing import Literal, Optional, Union
 
-import ase
 import numpy
+
+import ase
 from ase.atoms import Atoms as aseAtoms
 from ase.build.supercells import make_supercell
+from mypytools.pkg_utils.ase import match_two_atoms
 from phonopy import Phonopy
+from phonopy.structure.atoms import PhonopyAtoms
 from phonopy.harmonic.dynamical_matrix import DynamicalMatrix, DynamicalMatrixNAC
 from phonopy.phonon.band_structure import BandStructure
-from phonopy.structure.atoms import PhonopyAtoms
 from phonopy.units import VaspToCm, VaspToEv, VaspToTHz
 from tqdm import tqdm
 
-from mypytools.pkg_utils.ase import match_two_atoms
 
 
 def atoms_ase2ph(atoms: aseAtoms):
@@ -181,7 +181,8 @@ def compute_L(
     ph_eigvecs: numpy.ndarray,  # shape (nqpoints, natoms*3, nbands)
     q: numpy.ndarray,  # shape (nqpoints, 3)
 ) -> numpy.ndarray:
-    r"""
+    r"""longitudinality
+
     Equation:
     $$
     L_{q,n} = \left|
@@ -204,8 +205,36 @@ def compute_L(
     # Compute L, longitudinality
     lgt = numpy.einsum("qaxn,qx->qan", ph_eigvec_normed, q_normed)  # shape (nqpoints, natoms, nbands)
     lgt = lgt.mean(axis=1)  # shape (nqpoints, nbands)
-    lgt = 2**0.5 * numpy.abs(lgt)  # shape (nqpoints, nbands), TODO: check why need 2**0.5 here
+    # lgt = 2**0.5 * numpy.abs(lgt)  # shape (nqpoints, nbands), TODO: check why need 2**0.5 here
+    lgt = natoms**0.5 * numpy.abs(lgt)  # shape (nqpoints, nbands), need natoms**0.5 here to ensure max=1
     return lgt
+
+def compute_V(
+    atoms: aseAtoms,
+    ph_eigvecs: numpy.ndarray,  # shape (nqpoints, natoms*3, nbands)
+) -> numpy.ndarray:
+    r"""verticality
+
+    Equation:
+    $$
+    V_{q,n} = \left|
+        \frac{1}{N} \sum_{\alpha=1}^{N}
+        \frac{\hat{z} e_{q,n}^{\alpha}}{\sqrt{e_{q,n}^{\alpha *} e_{q,n}^{\alpha}}}
+    \right|
+    $$
+    """
+
+    # Normalize the ph_eigvec to 1
+    ph_eigvec_normed = ph_eigvecs / numpy.linalg.norm(ph_eigvecs, axis=1)[:, None, :]
+    nqpoints, natoms3, nbands = ph_eigvecs.shape
+    natoms = len(atoms)
+    assert natoms3 == natoms * 3, "Number of phonon displacement basis is not a multiple of 3."
+    ph_eigvec_normed = ph_eigvec_normed.reshape(nqpoints, natoms, 3, nbands)
+
+    # Compute V, verticality
+    vtcl = numpy.abs(ph_eigvec_normed[:, :, 2, :])  # shape (nqpoints, natoms, nbands)
+    vtcl = natoms**0.5 * vtcl.mean(axis=1)  # shape (nqpoints, nbands)
+    return vtcl
 
 
 def rotmat_xOy(angle: float):
