@@ -1,12 +1,17 @@
 import os
-from typing import Literal
+import pickle
+from typing import Literal, Optional, Union
 
 import ase
 import numpy
 from ase.atoms import Atoms as aseAtoms
 from ase.build.supercells import make_supercell
 from phonopy import Phonopy
+from phonopy.harmonic.dynamical_matrix import DynamicalMatrix, DynamicalMatrixNAC
+from phonopy.phonon.band_structure import BandStructure
 from phonopy.structure.atoms import PhonopyAtoms
+from phonopy.units import VaspToCm, VaspToEv, VaspToTHz
+from tqdm import tqdm
 
 from mypytools.pkg_utils.ase import match_two_atoms
 
@@ -203,21 +208,119 @@ def compute_L(
     return lgt
 
 
+def rotmat_xOy(angle: float):
+    """
+    Args:
+        angle: in radian
+    """
+    return numpy.array(
+        [
+            [
+                numpy.cos(angle),
+                -numpy.sin(angle),
+                0,
+            ],
+            [
+                numpy.sin(angle),
+                numpy.cos(angle),
+                0,
+            ],
+            [
+                0,
+                0,
+                1,
+            ],
+        ]
+    )
+
+
 class Unfold:
+    """
+    Usage:
+    ```python
+    unitcell, tmat = ...  # prepare
+    supercell = make_supercell(unitcell, tmat)
+    unfold = Unfold(unitcell, supercell, tmat)
+    special_points={  # for hexagon cell with gamma = 60.0 deg
+        "G": [0.0, 0.0, 0.0],
+        "M": [1 / 2, 1 / 2, 0.0],
+        "K": [1 / 3, 2 / 3, 0.0],
+        "K1": [-1 / 3, 1 / 3, 0.0],
+        "K2": [1 / 3, 2 / 3, 0.0],
+        "K3": [2 / 3, 1 / 3, 0.0],
+        "A": [0.0, 0.0, 1 / 2],
+    }
+    bz_labels = ["G", "M", "K", "G"]
+    kpath = [[special_points[label] for label in bz_labels]]  # must be 2-level list
+    kpts_list, connections = get_band_qpoints_and_path_connections(kpath, npoints=41)
+    kpts_concat, bz_labels_indices = concatenate_bands(kpts_list, connections)
+
+    my_unfold = Unfold(
+        unitcell = unitcell,
+        supercell = atoms_ph2ase(ph_sc.unitcell),
+        transformation_matrix = tmat,
+        verbose = True,
+    )
+    unfold.set_kpts_in_unitcell(kpts, format="fractional")
+    my_unfold.calculate_sc_phonon(ph_sc.dynamical_matrix, "meV")
+    my_unfold.calulate_weights()
+    my_unfold.calculate_band_expansion()
+    en_min, en_max, en_delta = 0.0, 200.0, 0.1
+    en_sigma = 5 * en_delta
+    my_unfold.calculate_band_expansion(
+        grid=numpy.arange(en_min, en_max+1e-6, en_delta),
+        sigma=en_sigma,
+    );
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+    energies_on_grid = my_unfold.energies_on_grid.T
+    # vmax = (en_sigma * numpy.sqrt(2 * numpy.pi))
+    vmax = energies_on_grid[energies_on_grid>1e-1].mean()
+    ax.imshow(
+        energies_on_grid,
+        cmap="Greys",
+        aspect="auto",
+        origin="lower",
+        vmax=vmax,
+        extent=[-0.5, len(my_unfold.kpts_uc_frac) - 0.5, en_min-en_delta/2, en_max+en_delta/2],
+    )
+    ax.set_xticks(bz_labels_indices, bz_labels)
+    ax.vlines(
+        bz_labels_indices,
+        en_min-en_delta/2, en_max+en_delta/2,
+        color="grey",
+        linestyle="dashed",
+        lw=1.0,
+    )
+    ax.set_xlabel("k-points")
+    ax.set_ylabel("Energy (meV)")
+    fig.tight_layout()
+    plt.show()
+    ```
+    """
+
     def __init__(
         self,
         unitcell: ase.Atoms,
         supercell: ase.Atoms,  # should be the one from phonon calculation
         transformation_matrix: numpy.ndarray,  # wrapping or not is not important
+        angle: Optional[float] = None,  # make_cell(unitcell, tmat) shall rotate `angle` to align with supercell
         spatial_tolerance: float = 5e-2,
+        # match_indices: Union[Literal["spatial"], Literal["manual"]] = "spatial",
         verbose: bool = False,
     ):
-        pass
+        """
+        Args:
+            match_indices: how to match the atoms indices for correct Bloch phase matching
+            angle: rotate the supercell generated from unitcell to align with the input supercell, in radian
+        """
 
-        self.uc = unitcell
-        self.sc = supercell
+        self.uc = unitcell.copy()
+        self.sc = supercell.copy()
         self.tmat = transformation_matrix
+        self.angle = angle
         self.sc_by_mat = None
+        self.perm_idx_i2g = None  # HACK: is it really useful???
+        self.perm_idx_g2i = None
         self.spa_tol = spatial_tolerance
         self.verbose = verbose
         self.prepare()
@@ -225,15 +328,21 @@ class Unfold:
     def prepare(self):
         """(reciprocal) lattice vectors (row vectors)
         Relations:
-        sc_la_vec = tmat @ pc_la_vec
-        pc_bz_vec = tmat.T @ sc_bz_vec
+        sc_la_vec = tmat @ uc_la_vec
+        uc_bz_vec = tmat.T @ sc_bz_vec
         """
 
         """Check the supercell validity by transformation matrix"""
         self.sc_by_mat = make_supercell(self.uc, self.tmat, wrap=False)  # without wrapping
+        if self.angle is not None:
+            assert isinstance(self.angle, float)
+            self.sc_by_mat.rotate(self.angle, "z", rotate_cell=True)
         _match_scs = match_two_atoms(self.sc, self.sc_by_mat, spatial_tolerance=self.spa_tol)
         if _match_scs["fail_reason"] is not None:
             raise Exception(_match_scs["fail_reason"])
+        self.perm_idx_i2g = _match_scs["atoms_indices_a2b"]  # input to generated
+        self.perm_idx_g2i = _match_scs["atoms_indices_b2a"]  # generated to input
+        self.nucs_in_sc = len(self.sc) // len(self.uc)  # nubmer of unit cells in the supercell
 
         """prepare the lattice / BZ vectors"""
         self.uc_la = numpy.array(self.uc.cell)  # lattice vector, shape (3=la_vec, 3=xyz)
@@ -243,43 +352,194 @@ class Unfold:
         assert numpy.allclose(self.sc_la, self.tmat @ self.uc_la, atol=3e-2)
         assert numpy.allclose(self.uc_bz, self.tmat.T @ self.sc_bz, atol=3e-2)
 
-    def set_unitcell_kpts(self, kpts: numpy.ndarray, format: Literal["fractional", "cartesian"] = "fractional"):
+    def set_kpts_in_unitcell(
+        self,
+        kpts: numpy.ndarray,
+        format: Literal["fractional", "cartesian"] = "fractional"
+    ):
         """fractional kpoints in scBZ of the ucBZ (self.kpts_uc_frac)
         k_pos = k-points in k-space
               = kpts_uc_frac @ uc_bz_vec
               = kpts_uc_frac @ tmat.T @ sc_bz_vec
-              =          kpts_frac_uc @ sc_bz_vec
+              =          kpts_sc_frac @ sc_bz_vec
+        For cartesian: without 2pi !!!
         """
         if format == "fractional":
-            self.kpts_cart = numpy.dot(kpts, self.uc_bz)
+            self.kpts_cart = numpy.matmul(kpts, self.uc_bz)  # without 2pi
             self.kpts_uc_frac = kpts
-            self.kpts_sc_frac = numpy.dot(numpy.linalg.inv(self.tmat.T), self.kpts_uc_frac)
+            self.kpts_sc_frac = numpy.matmul(self.kpts_uc_frac, self.tmat.T)
         elif format == "cartesian":
-            self.kpts_cart = kpts
-            self.kpts_uc_frac = numpy.dot(kpts, numpy.linalg.inv(self.uc_bz))
-            self.kpts_sc_frac = numpy.dot(kpts, numpy.linalg.inv(self.sc_bz))
+            self.kpts_cart = kpts  # without 2pi
+            self.kpts_uc_frac = numpy.matmul(kpts, numpy.linalg.inv(self.uc_bz))
+            self.kpts_sc_frac = numpy.matmul(kpts, numpy.linalg.inv(self.sc_bz))
         else:
             raise ValueError(f"format={format} not supported")
+        assert numpy.allclose(self.kpts_uc_frac @ self.uc_bz, self.kpts_cart)
+        assert numpy.allclose(self.kpts_sc_frac @ self.sc_bz, self.kpts_cart)
 
-    def save(self):
-        """save the parameters to a yaml file for reinstantiation"""
+    def calculate_sc_phonon(
+        self,
+        # dyn_uc: Union[DynamicalMatrix, DynamicalMatrixNAC],
+        dyn_sc: Union[DynamicalMatrix, DynamicalMatrixNAC],
+        factor: Union[float, str] = VaspToEv,
+    ):
+        # setup factor, by default it is Vasp but idk what unit is the "Vasp" here.
+        if isinstance(factor, float):
+            pass
+        elif isinstance(factor, str):
+            factor = factor.lower()
+            assert factor in (
+                "ev",
+                "mev",
+                "thz",
+                "cm",
+            ), f"factor={factor} not supported"
+            factor = {"ev": VaspToEv, "mev": VaspToEv * 1e3, "thz": VaspToTHz, "cm": VaspToCm}[factor]
+        else:
+            raise ValueError(f"factor={factor} not supported")
+
+        # # calculate band structure in the unitcell
+        # bs_uc = BandStructure(
+        #     paths=[self.kpts_uc_frac],
+        #     dynamical_matrix=dyn_uc,
+        #     with_eigenvectors=True,
+        #     factor=factor,
+        # )
+        # self.bs_uc_energies = bs_uc.frequencies[0]  # shape (nkpts, nbands)
+        # self.bs_sc_eigenvecs = bs_uc.eigenvectors[0]  # shape (nkpts, natoms*xyz, nbands)
+        # nkpts, natoms3_uc, nbands_uc = self.bs_sc_eigenvecs.shape
+        # self.bs_sc_eigenvecs = self.bs_sc_eigenvecs.reshape(nkpts, natoms3_uc // 3, 3, nbands_uc)
+
+        # calculate band structure in the supercell
+        bs_sc = BandStructure(
+            paths=[self.kpts_sc_frac],
+            dynamical_matrix=dyn_sc,
+            with_eigenvectors=True,
+            factor=factor,
+        )
+        self.bs_sc_energies = bs_sc.frequencies[0]
+        self.bs_sc_eigenvecs = bs_sc.eigenvectors[0]  # shape (nkpts, natoms*xyz, nbands)
+
+    def _calculate_weights_one_kpt(self, kpt_idx: int):
+        # kpt_cart = self.kpts_cart[kpt_idx]
+        # kpt_uc_frac = self.kpts_uc_frac[kpt_idx]
+        # kpt_sc_frac = self.kpts_sc_frac[kpt_idx]
+        # uc2sc_bloch_phases = numpy.exp(-2.0j*numpy.pi * numpy.matmul(self.sc.positions, kpt_cart))  # incorrect
+        # uc2sc_bloch_phases = numpy.ones(len(self.sc))  # phonopy applied the Bloch phase atom by atom, so no phase here
+        uc_natoms = len(self.uc)
+        sc_natoms = len(self.sc)
+        uc_modes = numpy.diag(numpy.ones(3*len(self.uc))).reshape(uc_natoms, 3, 3*uc_natoms)
+        uc2sc_modes = numpy.tile(uc_modes, (self.nucs_in_sc, 1, 1))  # shape (sc_natoms, xyz, uc_nmodes)
+        # uc2sc_modes = numpy.einsum("n,nxb->nxb", uc2sc_bloch_phases, uc2sc_modes)  # shape (sc_natoms, xyz, uc_nmodes)
+        uc2sc_modes = uc2sc_modes.reshape(3*sc_natoms, 3*uc_natoms)  # shape (sc_natoms*xyz, uc_nmodes)
+        sc_modes = self.bs_sc_eigenvecs[kpt_idx]  # shape (sc_natoms*xyz, sc_nbands)
+        weights = numpy.einsum("in,ib->nb", uc2sc_modes.conj(), sc_modes)  # shape (uc_nmodes, sc_nbands)
+        weights = (numpy.abs(weights) ** 2).sum(axis=0)  # shape (sc_nbands,)
+        return weights / self.nucs_in_sc
+
+    def calulate_weights(self):
+        weights = []
+        if self.verbose:
+            ktp_idx_iterator = tqdm(range(len(self.kpts_uc_frac)), desc="Projecting", ncols=64,)
+        else:
+            ktp_idx_iterator = range(len(self.kpts_uc_frac))
+        for kpt_idx in ktp_idx_iterator:
+            weights.append(self._calculate_weights_one_kpt(kpt_idx))  # TODO: parallelize this by p_tqdm
+        self.weights = numpy.array(weights)  # shape (nkpts, nbands)
+
+    def _calulate_band_expansion_one_kpt(self, kpt_idx: int, grid: numpy.ndarray, sigma: float):
+        weights = self.weights[kpt_idx]  # shape (sc_nbands, )
+        sc_energies = self.bs_sc_energies[kpt_idx]  # shape (sc_nbands, )
+        sc_energies_expanded = band_expansion(energies=sc_energies, grid=grid, sigma=sigma)  # shape (sc_nbands, ngrid)
+        proj_energies_expanded = numpy.einsum("j,jk->k", weights, sc_energies_expanded)  # shape (ngrid, )
+        return proj_energies_expanded
+
+    def calculate_band_expansion(self, grid: Optional[numpy.ndarray] = None, sigma: Optional[float] = None):
+        if (grid is None) and (sigma is None):
+            # grid = numpy.linspace(0, 0.2, 201)
+            _div = self.bs_sc_energies.max()/2000
+            grid = numpy.arange(0, self.bs_sc_energies.max() + 1e-1*_div, _div)
+            sigma = 5 * _div
+        else:
+            assert isinstance(grid, numpy.ndarray) and grid.ndim == 1
+            assert isinstance(sigma, float) and sigma > 0
+        if self.verbose:
+            ktp_idx_iterator = tqdm(range(len(self.kpts_uc_frac)), desc="Building Grids", ncols=64,)
+        else:
+            ktp_idx_iterator = range(len(self.kpts_uc_frac))
+        energies_on_grid = []
+        for kpt_idx in ktp_idx_iterator:
+            energies_on_grid.append(self._calulate_band_expansion_one_kpt(kpt_idx, grid, sigma))
+        self.energies_on_grid = numpy.stack(energies_on_grid, axis=0)  # shape (nkpt, ngrid)
+        return grid, sigma
+
+    def save(self, fpath: str):
+        """to be implemented properly"""
         pass
+        # with open(fpath, "wb") as f:
+        #     pickle.dump(self, f)
 
-    # # write a method to read the parameters from a yaml file
-    # @classmethod
-    # def load(cls, yaml_file):
-    #     """Load the parameters from a yaml file"""
-    #     with open(yaml_file) as file:
-    #         params = yaml.safe_load(file)
-    #     instance = cls()
-    #     for key, value in params.items():
-    #         setattr(instance, key, value)
-    #     return instance
-    #     """Load the parameters from a yaml file"""
-    #     with open(yaml_file) as file:
-    #         params = yaml.safe_load(file)
-    #     for key, value in params.items():
-    #         setattr(self, key, value)
+    @classmethod
+    def load(cls, fpath: str):
+        """to be implemented properly"""
+        pass
+        # with open(fpath, "rb") as f:
+        #     this_load = pickle.load(f)
+        # assert isinstance(this_load, cls)
+        # return this_load
+
+
+def gaussian_function(x: numpy.ndarray, mu: Union[int, numpy.ndarray] = 0, sigma: int = 1e-2):
+    if isinstance(mu, int):
+        pass  # return shape: x.shape
+    elif isinstance(mu, numpy.ndarray):
+        assert x.ndim == 1
+        mu = mu[..., numpy.newaxis]  # shape (..., 1), return shape: mu.shape \otimes x.shape
+    else:
+        raise ValueError("mu should be int or numpy.ndarray, but got " + str(type(mu)))
+    return numpy.exp(-((x - mu) ** 2) / (2 * sigma**2)) / (sigma * numpy.sqrt(2 * numpy.pi))
+
+
+def band_expansion(energies: numpy.ndarray, grid: numpy.ndarray, sigma=1e-2):
+    """expand the band structure to a grid by Gaussian function, i.e. add an extra"""
+    grid_delta_min = numpy.min(numpy.diff(grid))
+    if grid_delta_min > sigma:
+        print(f"Warning: grid delta is smaller than sigma: {grid_delta_min:.3e} < {sigma:.3e}")
+    return gaussian_function(grid, energies, sigma)  # shape (nbands, ngrids)
+
+
+def concatenate_bands(
+    kpts:list[numpy.ndarray],
+    connections:list[bool],
+):
+    """take the output of phonopy.phonon.band_structure.get_band_qpoints_and_path_connections
+    and remove the duplicated kpoints if two neighboring band kpath has the same start/end point
+    connections[i] means kpts[i] and kpts[i+1] are/ain't connected
+
+    WARN: this function can only deal with one-contour kpath, no interruped kpath allowed
+    """
+    assert len(kpts) == len(connections)
+    kpts_new: list[numpy.ndarray] = []
+    for i in range(len(kpts)):
+        if connections[i]:
+            kpts_new.append(kpts[i][:-1])  # kpts[i][-1] == kpts_arr[i+1][0]
+        else:
+            kpts_new.append(kpts[i])
+    # calculate the indices corresponds to bz_labels
+    bz_labels_indices = [0,]
+    next_seg_begin_index = 0
+    for i in range(len(kpts)):
+        if connections[i]:
+            next_seg_begin_index += kpts[i].shape[0] - 1
+            bz_labels_indices.append(next_seg_begin_index)
+        else:
+            next_seg_begin_index += kpts[i].shape[0]
+            if i != len(kpts)-1:
+                bz_labels_indices.append(next_seg_begin_index-1)
+                bz_labels_indices.append(next_seg_begin_index)
+            else:
+                bz_labels_indices.append(next_seg_begin_index-1)
+    return numpy.concatenate(kpts_new, axis=0), bz_labels_indices
 
 
 class UnfoldTwistBilayer:
@@ -288,4 +548,5 @@ class UnfoldTwistBilayer:
     def __init__(
         self,
     ):
+        """to be implemented"""
         pass
