@@ -217,9 +217,10 @@ def compute_V(
 
     Equation:
     $$
-    V_{q,n} = \left|
-        \frac{1}{N} \sum_{\alpha=1}^{N}
-        \frac{\hat{z} e_{q,n}^{\alpha}}{\sqrt{e_{q,n}^{\alpha *} e_{q,n}^{\alpha}}}
+    V_{q,n} =
+    \frac{1}{N} \sum_{\alpha=1}^{N}
+    \left|
+    \frac{\hat{z} e_{q,n}^{\alpha}}{\sqrt{e_{q,n}^{\alpha *} e_{q,n}^{\alpha}}}
     \right|
     $$
     """
