@@ -1,22 +1,13 @@
 import argparse
 import os
-import pickle
-import shutil
 import time
-from pprint import pprint
-from typing import List, Optional
+from typing import Optional
 
-import ase
-import matplotlib.pyplot as plt
-import numpy
-import yaml
 from ase.io import read, write
 from ase.optimize import BFGS, FIRE, LBFGS, BFGSLineSearch
-from ase.phonons import Phonons
 from mace.calculators import MACECalculator
 
-from mypytools.mpi.phonons import PhononsMPI
-from mypytools.mpi.utils import distribute_work, load_mpi, load_print_func, set_num_cpus
+from mypytools.mpi.utils import set_num_cpus
 
 
 def main(
@@ -48,7 +39,7 @@ def main(
         "lbfgs": LBFGS,
         "fire": FIRE,
     }
-    opt = methods[method](atoms, logfile='-')  # output to stdout
+    opt = methods[method](atoms, logfile="-")  # output to stdout
     start_time = time.time()
     opt.run(fmax=fmax)
     end_time = time.time()
