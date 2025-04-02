@@ -1,19 +1,18 @@
 import os
 from typing import Literal, Optional, Union
 
-import numpy
-
 import ase
+import numpy
 from ase.atoms import Atoms as aseAtoms
 from ase.build.supercells import make_supercell
-from mypytools.pkg_utils.ase import match_two_atoms
 from phonopy import Phonopy
-from phonopy.structure.atoms import PhonopyAtoms
 from phonopy.harmonic.dynamical_matrix import DynamicalMatrix, DynamicalMatrixNAC
 from phonopy.phonon.band_structure import BandStructure
+from phonopy.structure.atoms import PhonopyAtoms
 from phonopy.units import VaspToCm, VaspToEv, VaspToTHz
 from tqdm import tqdm
 
+from mypytools.pkg_utils.ase import match_two_atoms
 
 
 def atoms_ase2ph(atoms: aseAtoms):
@@ -37,6 +36,7 @@ def atoms_ph2ase(atoms: PhonopyAtoms):
 
 def init_phonopy_paths(
     work_dpath: str,
+    makedirs: bool = True,
 ):
     """
     Usage:
@@ -63,7 +63,8 @@ def init_phonopy_paths(
         "logs_dpath": os.path.join(work_dpath, "logs"),
         "band_fpath": os.path.join(work_dpath, "band.h5"),
     }
-    [os.makedirs(ph_paths[k], exist_ok=True) for k in ("geoms_dpath", "aims_dpath", "mlip_dpath", "logs_dpath")]
+    if makedirs:
+        [os.makedirs(ph_paths[k], exist_ok=True) for k in ("geoms_dpath", "aims_dpath", "mlip_dpath", "logs_dpath")]
     return ph_paths
 
 
