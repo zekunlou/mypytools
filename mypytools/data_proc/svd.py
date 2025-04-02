@@ -44,10 +44,11 @@ class SVDResult:
         return cls(U, S, Vh, end_time - start_time, target_path)
 
 
-def pseudo_inverse_truncation(
+def SVD_truncation(
     svd_result: SVDResult,
     eps: Optional[float] = None,
-    return_mat: bool = False,
+    return_rebuilt: bool = True,
+    return_pinv: bool = True,
 ) -> tuple[numpy.ndarray, tuple[int, int]]:
     """
     https://math.stackexchange.com/questions/19948/pseudoinverse-matrix-and-svd
@@ -69,22 +70,23 @@ def pseudo_inverse_truncation(
     U_use = svd_result.U[:, use_indices]
     S_use = svd_result.S[use_indices]
     Vh_use = svd_result.Vh[use_indices, :]
-    mat_rebuilt = (U_use * S_use) @ Vh_use if return_mat else None
-    mat_inv = (Vh_use.H * S_use ** (-1)) @ U_use.H
+    mat_rebuilt = (U_use * S_use) @ Vh_use if return_rebuilt else None
+    mat_pinv = (Vh_use.H * S_use ** (-1)) @ U_use.H if return_pinv else None
     return {
-        "mat_inv": mat_inv,
+        "mat_pinv": mat_pinv,
         "mat_rebuilt": mat_rebuilt,
-        "num_used_sv": len(use_indices),  # number of singular values used
-        "num_total_sv": len(svd_result.S),  # number of singular values in total
+        "num_sc_used": len(use_indices),  # number of singular values used
+        "num_sc_total": len(svd_result.S),  # number of singular values in total
     }
 
 
-def pseudo_inverse_smooth(
+def SVD_smooth(
     svd_result: SVDResult,
     eps: float = 1e-10,
     method: Literal["Tikhonov",] = "Tikhonov",
     ignore_small_filter: Optional[float] = None,
-    return_mat: bool = False,
+    return_rebuilt: bool = True,
+    return_pinv: bool = True,
 ) -> tuple[numpy.ndarray, tuple[int, int]]:
     """
     https://www.imm.dtu.dk/~pcha/HNO/chap6.pdf
@@ -116,14 +118,14 @@ def pseudo_inverse_smooth(
     U_use = svd_result.U[:, use_indices]
     S_use = svd_result.S[use_indices]
     Vh_use = svd_result.Vh[use_indices, :]
-    mat_rebuilt = (U_use * S_use) @ Vh_use if return_mat else None
-    mat_inv = (Vh_use.H * f_values[use_indices] * S_use ** (-1)) @ U_use.H
+    mat_rebuilt = (U_use * S_use) @ Vh_use if return_rebuilt else None
+    mat_pinv = (Vh_use.H * f_values[use_indices] * S_use ** (-1)) @ U_use.H if return_pinv else None
     return {
-        "mat_inv": mat_inv,
+        "mat_pinv": mat_pinv,
         "mat_rebuilt": mat_rebuilt,
-        "num_used_sv": len(use_indices),  # number of singular values used
-        "num_g_eps": len(numpy.where(f_values > eps)[0]),  # number of singular values greater than eps
-        "num_total_sv": len(svd_result.S),  # number of singular values in total
+        "num_sv_g_eps": len(numpy.where(f_values > eps)[0]),  # number of singular values greater than eps
+        "num_sv_used": len(use_indices),  # number of singular values used
+        "num_sc_total": len(svd_result.S),  # number of singular values in total
     }
 
 
@@ -144,15 +146,14 @@ def cal_L_curve_data(
 
     residual_norms = []
     solution_norms = []
-    return_mat = solution_norm_method == "xAx"
     for eps in eps_array:
         if pseudo_inverse_method == "truncation":
-            A_pinv = pseudo_inverse_truncation(svd_result, eps=eps, return_mat=return_mat)
+            A_pinv = SVD_truncation(svd_result, eps=eps)
         elif pseudo_inverse_method == "smooth":
-            A_pinv = pseudo_inverse_smooth(svd_result, eps=eps, return_mat=return_mat)
+            A_pinv = SVD_smooth(svd_result, eps=eps)
         else:
             raise ValueError(f"Unknown method: {pseudo_inverse_method}")
-        x = A_pinv["mat_inv"] @ b
+        x = A_pinv["mat_pinv"] @ b
         residual_norms.append(numpy.linalg.norm(A_pinv["mat_rebuilt"] @ x - b))
         if solution_norm_method == "x2":
             solution_norms.append(numpy.linalg.norm(x))
