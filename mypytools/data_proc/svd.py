@@ -71,7 +71,7 @@ def SVD_truncation(
     S_use = svd_result.S[use_indices]
     Vh_use = svd_result.Vh[use_indices, :]
     mat_rebuilt = (U_use * S_use) @ Vh_use if return_rebuilt else None
-    mat_pinv = (Vh_use.H * S_use ** (-1)) @ U_use.H if return_pinv else None
+    mat_pinv = (Vh_use.T * S_use ** (-1)) @ U_use.T if return_pinv else None
     return {
         "mat_pinv": mat_pinv,
         "mat_rebuilt": mat_rebuilt,
@@ -119,7 +119,7 @@ def SVD_smooth(
     S_use = svd_result.S[use_indices]
     Vh_use = svd_result.Vh[use_indices, :]
     mat_rebuilt = (U_use * S_use) @ Vh_use if return_rebuilt else None
-    mat_pinv = (Vh_use.H * f_values[use_indices] * S_use ** (-1)) @ U_use.H if return_pinv else None
+    mat_pinv = (Vh_use.T * f_values[use_indices] * S_use ** (-1)) @ U_use.T if return_pinv else None
     return {
         "mat_pinv": mat_pinv,
         "mat_rebuilt": mat_rebuilt,
@@ -129,7 +129,7 @@ def SVD_smooth(
     }
 
 
-def cal_L_curve_data(
+def cal_L_curve(
     svd_result: SVDResult,
     b: numpy.ndarray,
     eps_array: numpy.ndarray,
