@@ -86,7 +86,8 @@ def main(overlaps_dir: str, save_svd_dir: str, use_mpi: bool = False):
         end_time = time.time()
         svd_result = SVDResult(U, S, Vh, end_time - start_time, ovlp_fpath)
         svd_result.save(os.path.join(save_svd_dir, f"{SVD_PREFIX}{this_index}.npz"))
-        print(f"rank {rank} finished index={this_index}, time={svd_result.time:.2f}")
+        this_cond_num = S.max() / S.min()
+        print(f"rank {rank} finished index={this_index}, time={svd_result.time:.2f}, cond_num={this_cond_num:.5e}")
 
 
 if __name__ == "__main__":
