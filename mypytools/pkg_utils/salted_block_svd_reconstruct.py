@@ -6,40 +6,12 @@ import time
 from functools import partial
 
 import numpy
-import numpy.linalg
 
-from mypytools.data_proc.svd import SVDResult
+from mypytools.aims.ri_ovlp_blocks_rebuilt import block_SVD_smooth, block_SVD_truncation
+from mypytools.aims.ri_ovlp_blocks_svd import Ovlp_Block_SVDResult
 from mypytools.mpi import distribute_work
 
 print = partial(print, flush=True)
-
-
-def distribute_work(job_indexes: list[int], size: int, random: bool = True) -> list[list[int]]:
-    """split the job_indexes into size parts"""
-    if random:
-        numpy.random.shuffle(job_indexes)
-    assert size >= 1, f"size should be greater than or equal to 1, but got {size=}"
-    if size == 1:
-        return [job_indexes]
-    if size > len(job_indexes):
-        raise ValueError(
-            f"the number of tasks should be less than the number of jobs, but got {size=}, {len(job_indexes)=}"
-        )
-    n_jobs = len(job_indexes)
-    n_jobs_per_task = n_jobs // size
-    n_jobs_left = n_jobs % size
-    job_indexes_per_task = []
-    start_idx = 0
-    for i in range(size):
-        end_idx = start_idx + n_jobs_per_task
-        if i < n_jobs_left:
-            end_idx += 1
-        job_indexes_per_task.append(job_indexes[start_idx:end_idx])
-        start_idx = end_idx
-    assert len(job_indexes_per_task) == size, (
-        f"the number of tasks should be equal to {size}, but got {len(job_indexes_per_task)=}"
-    )
-    return job_indexes_per_task
 
 
 def rebuild_svd_cutoff(U, S, Vh, cutoff=None):
@@ -55,7 +27,13 @@ def rebuild_svd_cutoff(U, S, Vh, cutoff=None):
     return (U_hold * S_hold) @ Vh_hold, (len(hold_indices), len(S))
 
 
-def main(eigcut: float, svd_dir: str, overlaps_dir: str, use_mpi: bool = False):
+def main(
+    svcut: float,
+    method: str,
+    svd_dir: str,
+    overlaps_dir: str,
+    use_mpi: bool = False,
+):
     if use_mpi:
         from mpi4py import MPI
 
@@ -67,7 +45,7 @@ def main(eigcut: float, svd_dir: str, overlaps_dir: str, use_mpi: bool = False):
         size = 1
         rank = 0
 
-    SVD_PREFIX = "svd_conf"
+    SVD_PREFIX = "block_svd_conf"
     OVERLAP_PREFIX = "overlap_conf"
     os.makedirs(svd_dir, exist_ok=True)
     os.makedirs(overlaps_dir, exist_ok=True)
@@ -76,7 +54,7 @@ def main(eigcut: float, svd_dir: str, overlaps_dir: str, use_mpi: bool = False):
         """load the SVD files names"""
         print(f"loading overlaps from {svd_dir}")
         file_indices = sorted(
-            [int(n.split(".")[0][len(SVD_PREFIX) :]) for n in os.listdir(svd_dir) if n.endswith(".npz")]
+            [int(n.split(".")[0][len(SVD_PREFIX) :]) for n in os.listdir(svd_dir) if n.endswith(".pkl")]
         )
         my_job_indices = distribute_work(file_indices, size)
     else:
@@ -92,18 +70,26 @@ def main(eigcut: float, svd_dir: str, overlaps_dir: str, use_mpi: bool = False):
     print(f"{rank=}, {my_job_indices=}")
     comm.barrier()
     for this_index in my_job_indices:
-        svd_fpath = os.path.join(svd_dir, f"{SVD_PREFIX}{this_index}.npz")
-        svd = SVDResult.load(svd_fpath)
+        svd_fpath = os.path.join(svd_dir, f"{SVD_PREFIX}{this_index}.pkl")
+        svd = Ovlp_Block_SVDResult.load(svd_fpath)
         start_time = time.time()
-        rebuild_overlap, (hold_cnt, tot_cnt) = rebuild_svd_cutoff(svd.U, svd.S, svd.Vh, eigcut)
+        if method == "truncation":
+            rebuild_overlap = block_SVD_truncation(svd.U, svd.S, svd.Vh, svcut)
+        elif method == "smooth":
+            rebuild_overlap = rebuild_svd_cutoff(svd.U, svd.S, svd.Vh, svcut)
+        else:
+            raise ValueError(f"Unknown method: {method}")
         end_time = time.time()
         numpy.save(os.path.join(overlaps_dir, f"{OVERLAP_PREFIX}{this_index}.npy"), rebuild_overlap)
-        print(f"{rank=} finished index={this_index}, hold/tot={hold_cnt}/{tot_cnt}, time={end_time - start_time}")
+        print(f"{rank=} finished index={this_index}, time={end_time - start_time}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--eigcut", type=float, required=True, help="eigenvalue cutoff")
+    parser.add_argument("--svcut", type=float, required=True, help="singluar value cutoff")
+    parser.add_argument(
+        "--method", type=str, default="truncation", choices=["truncation", "smooth"], help="method for cutoff"
+    )
     parser.add_argument("--input", type=str, required=True, help="dir to the SVD results")
     parser.add_argument("--output", type=str, required=True, help="dir to store the rebuilt overlap matrix")
     parser.add_argument("--mpi", "-m", action="store_true", help="run the script with mpi")
@@ -111,4 +97,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     print(vars(args))
 
-    main(args.eigcut, args.input, args.output, args.mpi)
+    main(
+        svcut=args.svcut,
+        method=args.method,
+        svd_dir=args.input,
+        overlaps_dir=args.output,
+        use_mpi=args.mpi,
+    )

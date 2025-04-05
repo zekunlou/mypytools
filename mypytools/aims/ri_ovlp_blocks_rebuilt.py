@@ -22,20 +22,15 @@ def block_SVD_truncation(
     see mypytools.data_proc.svd.SVD_truncation
     behavior of eps should be consistent with the original SVD_truncation
     """
-    # data_full = numpy.zeros(block_svd_result.ovlp_shape, dtype=float)
     num_sub_blocks = len(block_svd_result.blocks_indices)
     data_full = [[None for _ in range(num_sub_blocks)] for _ in range(num_sub_blocks)]
     for (row_slice_idx, col_slice_idx), svd_result in block_svd_result.blocks_SVD_results.items():
-        # print(f"rebuilding block {row_slice_idx}, {col_slice_idx}")
         this_block_svd_proc = SVD_truncation(
             svd_result=svd_result,
             eps=eps,
             return_rebuilt=True,
             return_pinv=False,
         )
-        # data_full[block_svd_result.blocks_indices[row_slice_idx]][:, block_svd_result.blocks_indices[col_slice_idx]] = (
-        #     this_block_svd_proc["mat_rebuilt"]
-        # )
         data_full[row_slice_idx][col_slice_idx] = this_block_svd_proc["mat_rebuilt"]
 
     data_full = numpy.block(data_full)
@@ -66,7 +61,6 @@ def block_SVD_smooth(
             return_rebuilt=True,
             return_pinv=False,
         )
-        # print(this_block_svd_proc["num_sv_total"] - this_block_svd_proc["num_sv_g_eps"])
         data_full[row_slice_idx][col_slice_idx] = this_block_svd_proc["mat_rebuilt"]
 
     data_full = numpy.block(data_full)
