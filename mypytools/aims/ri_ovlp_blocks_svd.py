@@ -2,6 +2,7 @@ import argparse
 import os
 import pickle
 import time
+from dataclasses import dataclass
 
 import numpy
 from ase.atoms import Atoms
@@ -24,12 +25,50 @@ def load_parser():
         default=None,
         help="Path to basis_data.yaml, default to the default basis data file",
     )
+    parser.add_argument("--mpi", action="store_true", help="Use MPI for parallel processing")
     args = parser.parse_args()
     assert os.path.exists(args.input_fpath), f"Input directory {args.input_fpath} does not exist"
     assert os.path.exists(args.atoms_fpath), f"Atoms file {args.atoms_fpath} does not exist"
     assert os.path.exists(args.output_fpath), f"Output directory {args.output_fpath} does not exist"
     assert os.path.exists(args.basis_fpath), f"Basis file {args.basis_fpath} does not exist"
     return args
+
+
+@dataclass
+class Ovlp_Block_SVDResult:
+    atoms: Atoms
+    ovlp_shape: tuple[int, int]
+    blocks_indices: list[numpy.ndarray]
+    blocks_SVD_results: dict[tuple[int, int], SVDResult]
+    time: float = 0.0
+    target_fpath: str = None  # where you can find the original matrix
+
+    def save(self, fpath: str):
+        with open(fpath, "wb") as f:
+            pickle.dump(
+                {
+                    "atoms": self.atoms,
+                    "ovlp_shape": self.ovlp_shape,
+                    "blocks_indices": self.blocks_indices,
+                    "blocks_SVD_results": self.blocks_SVD_results,
+                    "time": self.time,
+                    "target_fpath": self.target_fpath,
+                },
+                f,
+            )
+
+    @classmethod
+    def load(cls, fpath: str):
+        with open(fpath, "rb") as f:
+            data = pickle.load(f)
+            return cls(
+                atoms=data["atoms"],
+                ovlp_shape=data["ovlp_shape"],
+                blocks_indices=data["blocks_indices"],
+                blocks_SVD_results=data["blocks_SVD_results"],
+                time=data["time"],
+                target_fpath=data["target_fpath"],
+            )
 
 
 def get_basis_size(nmax_list: list[int]):
@@ -60,7 +99,7 @@ def get_blocks_indices(
     return atoms_basis_slice_arrs
 
 
-def ri_ovlp_blocks_svd(
+def ri_ovlp_blocks_svd_from_fpath(
     input_fpath: str,
     atoms_fpath: str,
     output_fpath: str,
@@ -69,30 +108,54 @@ def ri_ovlp_blocks_svd(
 ):
     atoms = read(atoms_fpath)
     basis_data = BasisClient(_dev_data_fpath=basis_fpath).read(basis_name)
-    blocks_indices = get_blocks_indices(atoms, basis_data)
     print(f"loading overlap matrix from {input_fpath}")
     data_ovlp = numpy.load(os.path.join(input_fpath))
+    svd_result = ri_ovlp_blocks_svd(
+        data_ovlp=data_ovlp,
+        atoms=atoms,
+        basis_data=basis_data,
+    )
+    svd_result.target_fpath = input_fpath
+    svd_result.save(output_fpath)
+    print(f"saved SVD results to {output_fpath}")
+
+
+def ri_ovlp_blocks_svd(
+    data_ovlp: numpy.ndarray,
+    atoms: Atoms,
+    basis_data: dict,
+) -> Ovlp_Block_SVDResult:
+    blocks_indices = get_blocks_indices(atoms, basis_data)
     blocks_SVD_results = dict()
     print(f"computing SVD for {len(blocks_indices) ** 2} blocks")
+    time_start = time.time()
     for row_atom_idx, row_block_indices in enumerate(blocks_indices):
         for col_atom_idx, col_block_indices in enumerate(blocks_indices):
             this_block = data_ovlp[row_block_indices][:, col_block_indices]  # or we shall use numpy.ix_
             hermitian = row_atom_idx == col_atom_idx
             blocks_SVD_results[(row_atom_idx, col_atom_idx)] = SVDResult.compute(this_block, hermitian=hermitian)
     # save the SVD results
-    with open(output_fpath, "wb") as f:
-        pickle.dump(
-            {
-                "blocks_indices": blocks_indices,
-                "blocks_SVD_results": blocks_SVD_results,
-                "target_fpath": input_fpath,
-            },
-            f,
-        )
-    print(f"saved SVD results to {output_fpath}")
+    svd_result = Ovlp_Block_SVDResult(
+        atoms=atoms,
+        ovlp_shape=data_ovlp.shape,
+        blocks_indices=blocks_indices,
+        blocks_SVD_results=blocks_SVD_results,
+        time=time.time() - time_start,
+        target_fpath=None,
+    )
+    return svd_result
 
 
 if __name__ == "__main__":
     parser = load_parser()
     args = parser.parse_args()
-    ri_ovlp_blocks_svd(**args)
+    if args.mpi:
+        raise NotImplementedError("MPI is not implemented yet")
+    else:
+        ri_ovlp_blocks_svd_from_fpath(
+            input_fpath=args.input_fpath,
+            atoms_fpath=args.atoms_fpath,
+            output_fpath=args.output_fpath,
+            basis_name=args.basis_name,
+            basis_fpath=args.basis_fpath,
+        )

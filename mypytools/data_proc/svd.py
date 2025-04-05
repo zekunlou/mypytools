@@ -75,8 +75,8 @@ def SVD_truncation(
     return {
         "mat_pinv": mat_pinv,
         "mat_rebuilt": mat_rebuilt,
-        "num_sc_used": len(use_indices),  # number of singular values used
-        "num_sc_total": len(svd_result.S),  # number of singular values in total
+        "num_sv_used": len(use_indices),  # number of singular values used
+        "num_sv_total": len(svd_result.S),  # number of singular values in total
     }
 
 
@@ -118,14 +118,14 @@ def SVD_smooth(
     U_use = svd_result.U[:, use_indices]
     S_use = svd_result.S[use_indices]
     Vh_use = svd_result.Vh[use_indices, :]
-    mat_rebuilt = (U_use * S_use) @ Vh_use if return_rebuilt else None
+    mat_rebuilt = (U_use * f_values[use_indices] * S_use) @ Vh_use if return_rebuilt else None
     mat_pinv = (Vh_use.T * f_values[use_indices] * S_use ** (-1)) @ U_use.T if return_pinv else None
     return {
         "mat_pinv": mat_pinv,
         "mat_rebuilt": mat_rebuilt,
         "num_sv_g_eps": len(numpy.where(f_values > eps)[0]),  # number of singular values greater than eps
         "num_sv_used": len(use_indices),  # number of singular values used
-        "num_sc_total": len(svd_result.S),  # number of singular values in total
+        "num_sv_total": len(svd_result.S),  # number of singular values in total
     }
 
 
