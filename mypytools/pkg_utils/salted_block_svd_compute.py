@@ -45,23 +45,30 @@ def main(
         file_indices = sorted(
             [int(n.split(".")[0][len(OVERLAP_PREFIX) :]) for n in os.listdir(overlaps_dir) if n.endswith(".npy")]
         )
+        print(f"found {len(file_indices)} overlaps matrices")
         my_job_indices = distribute_work(file_indices, size)
         basis_data = BasisClient(_dev_data_fpath=basis_fpath).read(basis_name)
-        # synchronize basis data
-        basis_data = comm.bcast(basis_data, root=0)
     else:
         file_indices = None
         my_job_indices = None
         basis_data = None
+    # synchronize basis data
 
     if use_mpi:
         comm.barrier()
         my_job_indices: list[int] = comm.scatter(my_job_indices, root=0)
+        basis_data = comm.bcast(basis_data, root=0)
     else:
         my_job_indices = my_job_indices[0]
 
+    comm.barrier()
+    print(f"rank {rank} got basis data {basis_data=}")
+    comm.barrier()
     print(f"{rank=}, {my_job_indices=}")
     comm.barrier()
+    if rank == 0:
+        print(f"start calculation")
+
     for this_index in my_job_indices:
         ovlp_fpath = os.path.join(overlaps_dir, f"{OVERLAP_PREFIX}{this_index}.npy")
         ovlp = numpy.load(ovlp_fpath)
@@ -92,7 +99,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     assert os.path.exists(args.atoms_fpath), f"Atoms file {args.atoms_fpath} does not exist"
-    assert os.path.exists(args.basis_fpath), f"Basis file {args.basis_fpath} does not exist"
+    if args.basis_fpath is not None:
+        assert os.path.exists(args.basis_fpath), f"Basis file {args.basis_fpath} does not exist"
 
     main(
         overlaps_dir=args.input,

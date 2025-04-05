@@ -67,8 +67,12 @@ def main(
     else:
         my_job_indices = my_job_indices[0]
 
+    comm.barrier()
     print(f"{rank=}, {my_job_indices=}")
     comm.barrier()
+    if rank == 0:
+        print(f"start calculation")
+
     for this_index in my_job_indices:
         svd_fpath = os.path.join(svd_dir, f"{SVD_PREFIX}{this_index}.pkl")
         svd = Ovlp_Block_SVDResult.load(svd_fpath)

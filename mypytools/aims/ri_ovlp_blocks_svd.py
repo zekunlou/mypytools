@@ -127,7 +127,7 @@ def ri_ovlp_blocks_svd(
 ) -> Ovlp_Block_SVDResult:
     blocks_indices = get_blocks_indices(atoms, basis_data)
     blocks_SVD_results = dict()
-    print(f"computing SVD for {len(blocks_indices) ** 2} blocks")
+    # print(f"computing SVD for {len(blocks_indices) ** 2} blocks")
     time_start = time.time()
     for row_atom_idx, row_block_indices in enumerate(blocks_indices):
         for col_atom_idx, col_block_indices in enumerate(blocks_indices):
