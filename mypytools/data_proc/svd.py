@@ -15,6 +15,12 @@ class SVDResult:
     target_path: str = None  # where you can find the original matrix
     # rebuilt_cond: float = None  # condition number of the rebuilt matrix
 
+    def __repr__(self):
+        return (
+            f"SVDResult(U={self.U.shape}, S={self.S.shape}, Vh={self.Vh.shape}, "
+            f"time={self.time:.3e} sec, target_path={self.target_path})"
+        )
+
     def save(self, fpath: str):
         numpy.savez(
             fpath,
