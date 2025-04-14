@@ -34,13 +34,24 @@ class SVDResult:
     @classmethod
     def load(cls, fpath: str):
         data = numpy.load(fpath)
-        return cls(
-            U=data["U"],
-            S=data["S"],
-            Vh=data["Vh"],
-            time=data["time"],
-            target_path=data["target_path"],
-        )
+        try:
+            data["target_path"]
+        except ValueError:
+            return cls(
+                U=data["U"],
+                S=data["S"],
+                Vh=data["Vh"],
+                time=data["time"],
+                # target_path=data["target_path"],
+            )
+        else:
+            return cls(
+                U=data["U"],
+                S=data["S"],
+                Vh=data["Vh"],
+                time=data["time"],
+                target_path=data["target_path"],
+            )
 
     @classmethod
     def compute(cls, matrix: numpy.ndarray, hermitian: bool, target_path: str = None):
