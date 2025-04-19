@@ -78,14 +78,15 @@ def main(
         svd = Ovlp_Block_SVDResult.load(svd_fpath)
         start_time = time.time()
         if method == "truncation":
-            rebuild_overlap = block_SVD_truncation(svd.U, svd.S, svd.Vh, svcut)
+            rebuild_overlap = block_SVD_truncation(svd, svcut)
         elif method == "smooth":
-            rebuild_overlap = rebuild_svd_cutoff(svd.U, svd.S, svd.Vh, svcut)
+            rebuild_overlap = rebuild_svd_cutoff(svd, svcut)
         else:
             raise ValueError(f"Unknown method: {method}")
         end_time = time.time()
         numpy.save(os.path.join(overlaps_dir, f"{OVERLAP_PREFIX}{this_index}.npy"), rebuild_overlap)
         print(f"{rank=} finished index={this_index}, time={end_time - start_time}")
+        del svd, rebuild_overlap
 
 
 if __name__ == "__main__":
