@@ -181,9 +181,9 @@ def main():
 
     # Print actual grid divisions for information
     info_str = "\n# Actual grid divisions:"
-    info_str += f"\n# x: {cube_params['cube_div_actual'][0]:.6f}"
-    info_str += f"\n# y: {cube_params['cube_div_actual'][1]:.6f}"
-    info_str += f"\n# z: {cube_params['cube_div_actual'][2]:.6f}"
+    info_str += f"\n# 0: {cube_params['cube_div_actual'][0]:.6f}"
+    info_str += f"\n# 1: {cube_params['cube_div_actual'][1]:.6f}"
+    info_str += f"\n# 2: {cube_params['cube_div_actual'][2]:.6f}"
 
     # Add information about whether this is a 2D slab
     if cube_params["is_2d_slab"]:
