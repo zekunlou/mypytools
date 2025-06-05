@@ -10,6 +10,8 @@ def match_two_atoms(
     b: Atoms,
     spatial_tolerance: float = 1e-2,
 ):
+    """without checking species!"""
+
     ret_dict = {
         "atoms_indices_a2b": None,
         "atoms_indices_b2a": None,
@@ -42,6 +44,105 @@ def match_two_atoms(
     ret_dict["atoms_indices_b2a"] = numpy.argmin(atoms_dist, axis=1)  # a = b[atoms_indices_b2a]
 
     return ret_dict
+
+
+def match_two_2d_atoms_pbc_with_2d_shift(
+    a: Atoms,
+    b: Atoms,
+    shift_0_frac: float = 0.01,
+    shift_0_seg: int = 11,
+    shift_1_frac: float = 0.01,
+    shift_1_seg: int = 11,
+    spatial_tolerance: float = 1e-2,
+    ignore_z: bool = True,  # if taking z-coordinate into account in the matching
+):
+    """
+    Match two Atoms objects (should be 2D materials with PBC)
+
+    How to match:
+    - manipulate b to find the best match with a
+    - 2D shift in fractional coordinates along lattice vectors in 2D.
+    - For z-coordinate, will only align by the mean value of the z-coordinates.
+    WARNING: should not use ignore_z for 1H structures! as atoms with same xy coordinates but different z coordinates will be considered as matched, resulting in wrong indices
+    """
+    a = a.copy()  # make sure we do not modify the original objects
+    b = b.copy()
+    assert a.pbc[2] and b.pbc[2], "Both Atoms objects must have PBC in the z direction."
+    assert numpy.allclose(a.cell[:2], b.cell[:2], rtol=1e-5), "Cells in the xy plane must match."
+    a.cell[2, 2], b.cell[2, 2] = 100.0, 100.0  # set a large value for the z-coordinate to avoid PBC issues
+
+    # check if ignore_z is reasonable by checking minimul inlayer xy distance
+    if ignore_z:
+        # calculate the minimum distance in xy plane
+        atoms_dist_xy = numpy.linalg.norm(a.positions[:, None, :2] - b.positions[None, :, :2], axis=2)
+        min_xy_dist = numpy.min(atoms_dist_xy)
+        if min_xy_dist < spatial_tolerance:
+            print(
+                f"Warning: minimum distance in xy plane is {min_xy_dist:.3f} < spatial_tolerance={spatial_tolerance}, "
+                "forced ignore_z=True may lead to wrong matching!"
+            )
+
+    z_shift_b2a = numpy.mean(a.positions[:, 2]) - numpy.mean(b.positions[:, 2])
+    b.positions[:, 2] += z_shift_b2a  # align z-coordinates by mean value
+    cell_avg = (a.cell + b.cell) / 2.0  # average cell
+    shifts_frac = numpy.array(
+        [
+            [frac0, frac1, 0.0]
+            for frac0 in numpy.linspace(-shift_0_frac, shift_0_frac, shift_0_seg)
+            for frac1 in numpy.linspace(-shift_1_frac, shift_1_frac, shift_1_seg)
+        ]
+    )
+    shift_realspace = (
+        shifts_frac @ cell_avg
+    )  # convert fractional shifts to real space, shape (shift_0_seg * shift_1_seg, 3)
+
+    # then try to match atoms with wrapping and shifts
+    a.wrap()
+    b.wrap()
+    if_matched = False
+    b_shifted_list = []
+    atoms_dist_list = []
+    for _, this_shift_realspace in enumerate(shift_realspace):
+        this_b = b.copy()
+        this_b.positions += this_shift_realspace
+        this_b.wrap()
+        b_shifted_list.append(this_b)
+        if ignore_z:  # only compare xy coordinates
+            atoms_dist = numpy.linalg.norm(
+                a.positions[:, None, :2] - this_b.positions[None, :, :2], axis=2
+            )  # shape (natoms, natoms)
+        else:  # compare all coordinates
+            atoms_dist = numpy.linalg.norm(
+                a.positions[:, None, :] - this_b.positions[None, :, :], axis=2
+            )  # shape (natoms, natoms)
+        atoms_dist_list.append(numpy.sum(atoms_dist < spatial_tolerance))
+        # print(numpy.sum(atoms_dist < spatial_tolerance), len(a))  # for debug
+        if_matched = numpy.sum(atoms_dist < spatial_tolerance) == len(a)
+
+        if if_matched:
+            # found a match, return the shift and indices
+            ret_dict = {
+                "shift_position": this_shift_realspace + numpy.array([0.0, 0.0, z_shift_b2a]),  # shift in from b to a
+                "atoms_indices_a2b": numpy.argmin(atoms_dist, axis=0),  # b = a[atoms_indices_a2b]
+                "atoms_indices_b2a": numpy.argmin(atoms_dist, axis=1),  # a = b[atoms_indices_b2a]
+                "a_wrapped": a.copy(),  # just wrapped, not shifted
+                "b_shifted_wrapped": this_b.copy(),  # shifted and wrapped
+                "max_atoms_dist": numpy.max(atoms_dist),  # max distance between matched atoms
+            }
+            break
+        else:
+            ret_dict = None
+
+    return ret_dict
+
+
+def match_by_pbc_frac():
+    """actually the best way should be match two atoms by PBC fractional coordinates"""
+
+
+def match_two_atoms_sgd():
+    """ match two atoms with stochastic gradient descent (SGD) optimization"""
+    pass
 
 
 def geom_aims_insert_line(fpath: str, insert_lines: Union[str, list[str]]):

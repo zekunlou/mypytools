@@ -336,13 +336,36 @@ class Unfold:
         transformation_matrix: numpy.ndarray,  # wrapping or not is not important
         angle: Optional[float] = None,  # make_cell(unitcell, tmat) shall rotate `angle` to align with supercell
         spatial_tolerance: float = 5e-2,
-        # match_indices: Union[Literal["spatial"], Literal["manual"]] = "spatial",
+        unfold_atoms_indices: Optional[numpy.ndarray] = None,  # indices of atoms in the supercell to be unfolded, e.g. 2D bilayer case
+        perm_idx_i2g:Optional[numpy.ndarray] = None,
+        perm_idx_g2i:Optional[numpy.ndarray] = None,
         verbose: bool = False,
     ):
         """
+        Variables meanings:
+        - `uc`: unitcell, should be stretched and rotated so that can be transformed to the supercell with only `make_supercell` and `tmat`
+        - `sc`: supercell in phonopy
+        - `sc_uf`: part of the supercell that will be unfolded, e.g. in case 2 and 3
+
+        Cases in unfolding:
+        - Case 0: no permutation required, project all atoms
+            - no extra args required
+            - use `sc`
+        - Case 1: permutation required, project all atoms, e.g. atoms sequence changed
+            - requires perm_idx_xxx
+            - use `sc`
+        - Case 2: no permutation required, project part of atoms, e.g. 2D bilayer case
+            - requires unfold_atoms_indices
+            - use `sc_uf`
+        - Case 3: permutation required, project part of atoms, e.g. 2D bilayer case with atoms sequence changed
+            - requires perm_idx_xxx and unfold_atoms_indices
+            - use `sc_uf`
+
         Args:
-            match_indices: how to match the atoms indices for correct Bloch phase matching
             angle: rotate the supercell generated from unitcell to align with the input supercell, in radian
+            unfold_atoms_indices: indices of atoms in the phonopy supercell to be unfolded, e.g. 2D bilayer case
+            perm_idx_i2g: permutation indices from phonopy supercell (or phonopy supercell sliced by unfold_atoms_indices) to the generated supercell by primitive cell
+            perm_idx_g2i: the inverse permutation of `perm_idx_i2g
         """
 
         self.uc = unitcell.copy()
@@ -350,13 +373,16 @@ class Unfold:
         self.tmat = transformation_matrix
         self.angle = angle
         self.sc_by_mat = None
-        self.perm_idx_i2g = None  # HACK: is it really useful???
-        self.perm_idx_g2i = None
+        self.unfold_atoms_indices = unfold_atoms_indices
+        self.perm_idx_i2g = perm_idx_i2g
+        self.perm_idx_g2i = perm_idx_g2i
         self.spa_tol = spatial_tolerance
         self.verbose = verbose
         self.prepare()
 
-    def prepare(self):
+    def prepare(
+        self,
+    ):
         """(reciprocal) lattice vectors (row vectors)
         Relations:
         sc_la_vec = tmat @ uc_la_vec
@@ -368,20 +394,34 @@ class Unfold:
         if self.angle is not None:
             assert isinstance(self.angle, float)
             self.sc_by_mat.rotate(self.angle, "z", rotate_cell=True)
-        _match_scs = match_two_atoms(self.sc, self.sc_by_mat, spatial_tolerance=self.spa_tol)
-        if _match_scs["fail_reason"] is not None:
-            raise Exception(_match_scs["fail_reason"])
-        self.perm_idx_i2g = _match_scs["atoms_indices_a2b"]  # input to generated
-        self.perm_idx_g2i = _match_scs["atoms_indices_b2a"]  # generated to input
-        self.nucs_in_sc = len(self.sc) // len(self.uc)  # nubmer of unit cells in the supercell
+        if (self.perm_idx_g2i is not None) and (self.perm_idx_i2g is not None):
+            # check the permutation indices a looooooot
+            assert isinstance(self.perm_idx_g2i, numpy.ndarray) and isinstance(self.perm_idx_i2g, numpy.ndarray)
+            assert self.perm_idx_g2i.shape == self.perm_idx_i2g.shape
+            assert numpy.all(self.perm_idx_g2i >= 0) and numpy.all(self.perm_idx_i2g >= 0)
+            if self.unfold_atoms_indices is None:
+                assert len(self.perm_idx_g2i) == len(self.sc_by_mat) and len(self.perm_idx_i2g) == len(self.uc)
+            else:
+                assert len(self.perm_idx_g2i) == len(self.unfold_atoms_indices) and len(self.perm_idx_i2g) == len(
+                    self.unfold_atoms_indices
+                )
+                assert len(self.unfold_atoms_indices) == len(self.sc_by_mat)  # indices the part to be unfolded in phonopy supercell
+                assert len(numpy.unique(self.unfold_atoms_indices)) == len(self.unfold_atoms_indices)  # should be unique
+        else:
+            _match_scs = match_two_atoms(self.sc, self.sc_by_mat, spatial_tolerance=self.spa_tol)
+            if _match_scs["fail_reason"] is not None:
+                raise Exception(_match_scs["fail_reason"])
+            self.perm_idx_i2g = _match_scs["atoms_indices_a2b"]  # input to generated
+            self.perm_idx_g2i = _match_scs["atoms_indices_b2a"]  # generated to input
+        self.nucs_in_sc = len(self.sc_by_mat) // len(self.uc)  # nubmer of unit cells in the supercell
 
         """prepare the lattice / BZ vectors"""
         self.uc_la = numpy.array(self.uc.cell)  # lattice vector, shape (3=la_vec, 3=xyz)
         self.uc_bz = numpy.array(self.uc.cell.reciprocal())  # BZ vector, shape (3=bz_vec, 3=xyz)
         self.sc_la = numpy.array(self.sc.cell)  # lattice vector, shape (3=la_vec, 3=xyz)
         self.sc_bz = numpy.array(self.sc.cell.reciprocal())  # BZ vector, shape (3=bz_vec, 3=xyz)
-        assert numpy.allclose(self.sc_la, self.tmat @ self.uc_la, atol=3e-2)
-        assert numpy.allclose(self.uc_bz, self.tmat.T @ self.sc_bz, atol=3e-2)
+        assert numpy.allclose(self.sc_la[:2, :2], (self.tmat @ self.uc_la)[:2, :2], atol=3e-2)  # only compare xy
+        assert numpy.allclose(self.uc_bz[:2, :2], (self.tmat.T @ self.sc_bz)[:2, :2], atol=3e-2)  # only compare xy
 
     def set_kpts_in_unitcell(
         self,
@@ -414,6 +454,10 @@ class Unfold:
         dyn_sc: Union[DynamicalMatrix, DynamicalMatrixNAC],
         factor: Union[float, str] = VaspToEv,
     ):
+        """
+        This step might take a long time because it diagonalizes the dynamical matrix, please be patient.
+        I cannot add progress bar here because it is implemented inside phonopy.
+        """
         # setup factor, by default it is Vasp but idk what unit is the "Vasp" here.
         if isinstance(factor, float):
             pass
@@ -451,7 +495,7 @@ class Unfold:
         self.bs_sc_energies = bs_sc.frequencies[0]
         self.bs_sc_eigenvecs = bs_sc.eigenvectors[0]  # shape (nkpts, natoms*xyz, nbands)
 
-    def _calculate_weights_one_kpt(self, kpt_idx: int):
+    def _calculate_weights_one_kpt(self, kpt_idx: int):  # TODO: TODO: TODO: continue here
         # kpt_cart = self.kpts_cart[kpt_idx]
         # kpt_uc_frac = self.kpts_uc_frac[kpt_idx]
         # kpt_sc_frac = self.kpts_sc_frac[kpt_idx]
@@ -459,13 +503,29 @@ class Unfold:
         # uc2sc_bloch_phases = numpy.ones(len(self.sc))  # phonopy applied the Bloch phase atom by atom, so no phase here
         uc_natoms = len(self.uc)
         sc_natoms = len(self.sc)
-        uc_modes = numpy.diag(numpy.ones(3*len(self.uc))).reshape(uc_natoms, 3, 3*uc_natoms)
+        sc_uf_natoms = len(self.unfold_atoms_indices) if self.unfold_atoms_indices is not None else sc_natoms
+        """ prepare unitcell modes, be aware of the permutation """
+        uc_modes = numpy.diag(numpy.ones(3*len(self.uc))).reshape(uc_natoms, 3, 3*uc_natoms)  # uc_nmodes = uc_natoms*xyz
         uc2sc_modes = numpy.tile(uc_modes, (self.nucs_in_sc, 1, 1))  # shape (sc_natoms, xyz, uc_nmodes)
         # uc2sc_modes = numpy.einsum("n,nxb->nxb", uc2sc_bloch_phases, uc2sc_modes)  # shape (sc_natoms, xyz, uc_nmodes)
-        uc2sc_modes = uc2sc_modes.reshape(3*sc_natoms, 3*uc_natoms)  # shape (sc_natoms*xyz, uc_nmodes)
+        if self.perm_idx_g2i is not None:  # permutate the uc2sc, so unfold_atoms_indices doesn't matter here
+            uc2sc_modes = uc2sc_modes[self.perm_idx_g2i]  # permute the modes to match the supercell
+            uc2sc_modes = uc2sc_modes.reshape(3*len(self.perm_idx_g2i), 3*uc_natoms)  # shape (sc_natoms*xyz, uc_nmodes)
+        else:
+            uc2sc_modes = uc2sc_modes.reshape(3*sc_natoms, 3*uc_natoms)  # shape (sc_natoms*xyz, uc_nmodes)
+        """ prepare supercell modes """
         sc_modes = self.bs_sc_eigenvecs[kpt_idx]  # shape (sc_natoms*xyz, sc_nbands)
-        weights = numpy.einsum("in,ib->nb", uc2sc_modes.conj(), sc_modes)  # shape (uc_nmodes, sc_nbands)
-        weights = (numpy.abs(weights) ** 2).sum(axis=0)  # shape (sc_nbands,)
+        if self.unfold_atoms_indices is not None:
+            """ unfolding only involves part of the phonopy supercell """
+            sc_uf_modes = sc_modes.reshape(sc_natoms, 3, 3*sc_natoms)
+            sc_uf_modes = sc_uf_modes[self.unfold_atoms_indices]  # take only the motion of atoms to be unfolded
+            sc_uf_modes = sc_uf_modes.reshape(3*sc_uf_natoms, 3*sc_natoms)  # shape (sc_uf_natoms*xyz, sc_nmodes)
+            weights = numpy.einsum("in,ib->nb", uc2sc_modes.conj(), sc_uf_modes)  # shape (uc_nmodes, sc_nbands)
+            weights = (numpy.abs(weights) ** 2).sum(axis=0)  # shape (sc_nbands,)
+        else:
+            """ unfolding involves the whole phonopy supercell """
+            weights = numpy.einsum("in,ib->nb", uc2sc_modes.conj(), sc_modes)  # shape (uc_nmodes, sc_nbands)
+            weights = (numpy.abs(weights) ** 2).sum(axis=0)  # shape (sc_nbands,)
         return weights / self.nucs_in_sc
 
     def calulate_weights(self):
@@ -488,8 +548,13 @@ class Unfold:
     def calculate_band_expansion(self, grid: Optional[numpy.ndarray] = None, sigma: Optional[float] = None):
         if (grid is None) and (sigma is None):
             # grid = numpy.linspace(0, 0.2, 201)
-            _div = self.bs_sc_energies.max()/2000
-            grid = numpy.arange(0, self.bs_sc_energies.max() + 1e-1*_div, _div)
+            _div = (self.bs_sc_energies.max() - self.bs_sc_energies.min()) / 2000
+            _overshoot = self.bs_sc_energies.max() * 0.05
+            grid = numpy.arange(
+                self.bs_sc_energies.min() - _overshoot,
+                self.bs_sc_energies.max() + _overshoot,
+                _div
+            )
             sigma = 5 * _div
         else:
             assert isinstance(grid, numpy.ndarray) and grid.ndim == 1
