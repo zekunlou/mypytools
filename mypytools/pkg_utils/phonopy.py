@@ -1,4 +1,5 @@
 import os
+import pickle
 from typing import Literal, Optional, Union
 
 import ase
@@ -334,18 +335,34 @@ class Unfold:
         unitcell: ase.Atoms,
         supercell: ase.Atoms,  # should be the one from phonon calculation
         transformation_matrix: numpy.ndarray,  # wrapping or not is not important
-        angle: Optional[float] = None,  # make_cell(unitcell, tmat) shall rotate `angle` to align with supercell
+        angle: Optional[float] = None,
         spatial_tolerance: float = 5e-2,
-        unfold_atoms_indices: Optional[numpy.ndarray] = None,  # indices of atoms in the supercell to be unfolded, e.g. 2D bilayer case
+        unfold_atoms_indices: Optional[numpy.ndarray] = None,
         perm_idx_i2g:Optional[numpy.ndarray] = None,
         perm_idx_g2i:Optional[numpy.ndarray] = None,
         verbose: bool = False,
     ):
-        """
+        """Unfold phonon band structure from phonopy supercell to a unit cell
+
+        Args:
+            unitcell (ase.Atoms): the unitcell
+            supercell (ase.Atoms): the supercell from phonon calculation (you can get it by `phonopy.unitcell)
+            transformation_matrix (numpy.ndarray): Transformation matrix to create supercell from unitcell
+            angle (Optional[float]): Rotate the supercell generated from unitcell to align with the phonopy supercell,
+                in degrees
+            spatial_tolerance (float): Tolerance for spatial matching of atoms
+            unfold_atoms_indices (Optional[numpy.ndarray]): Indices of atoms in the phonopy supercell to be unfolded,
+                e.g. 2D bilayer case
+            perm_idx_i2g (Optional[numpy.ndarray]): Permutation indices from phonopy supercell (or phonopy supercell
+                sliced by unfold_atoms_indices) to the generated supercell by unit cell
+            perm_idx_g2i (Optional[numpy.ndarray]): The inverse permutation of `perm_idx_i2g`
+            verbose (bool): Whether to show progress bars and additional output
+
         Variables meanings:
-        - `uc`: unitcell, should be stretched and rotated so that can be transformed to the supercell with only `make_supercell` and `tmat`
+        - `uc`: unitcell, should be stretched and rotated so that can be transformed to the supercell with only
+            `make_supercell` and `tmat`
         - `sc`: supercell in phonopy
-        - `sc_uf`: part of the supercell that will be unfolded, e.g. in case 2 and 3
+        - `sc_uf`: part of the supercell that will be unfolded, will only be used in case 2 and 3
 
         Cases in unfolding:
         - Case 0: no permutation required, project all atoms
@@ -361,11 +378,8 @@ class Unfold:
             - requires perm_idx_xxx and unfold_atoms_indices
             - use `sc_uf`
 
-        Args:
-            angle: rotate the supercell generated from unitcell to align with the input supercell, in radian
-            unfold_atoms_indices: indices of atoms in the phonopy supercell to be unfolded, e.g. 2D bilayer case
-            perm_idx_i2g: permutation indices from phonopy supercell (or phonopy supercell sliced by unfold_atoms_indices) to the generated supercell by primitive cell
-            perm_idx_g2i: the inverse permutation of `perm_idx_i2g
+        Performance:
+        - The most time consuming part is calculating band structure in the supercell, which is done by phonopy so cannot be parallelized.
         """
 
         self.uc = unitcell.copy()
@@ -380,9 +394,7 @@ class Unfold:
         self.verbose = verbose
         self.prepare()
 
-    def prepare(
-        self,
-    ):
+    def prepare(self,):
         """(reciprocal) lattice vectors (row vectors)
         Relations:
         sc_la_vec = tmat @ uc_la_vec
@@ -450,15 +462,22 @@ class Unfold:
 
     def calculate_sc_phonon(
         self,
-        # dyn_uc: Union[DynamicalMatrix, DynamicalMatrixNAC],
         dyn_sc: Union[DynamicalMatrix, DynamicalMatrixNAC],
         factor: Union[float, str] = VaspToEv,
     ):
+        """Calculate phonon band structure in the supercell.
+
+        This step might take a long time because it diagonalizes the dynamical matrix,
+        please be patient. Progress bar cannot be added here because it is implemented
+        inside phonopy.
+
+        Args:
+            dyn_sc (Union[DynamicalMatrix, DynamicalMatrixNAC]): Dynamical matrix for the supercell.
+            factor (Union[float, str]): Energy conversion factor. Can be a float or string.
+                Supported strings: "ev", "mev", "thz", "cm".
+                Defaults to `VaspToEv`, or equivalently `"ev"`.
         """
-        This step might take a long time because it diagonalizes the dynamical matrix, please be patient.
-        I cannot add progress bar here because it is implemented inside phonopy.
-        """
-        # setup factor, by default it is Vasp but idk what unit is the "Vasp" here.
+
         if isinstance(factor, float):
             pass
         elif isinstance(factor, str):
@@ -495,7 +514,7 @@ class Unfold:
         self.bs_sc_energies = bs_sc.frequencies[0]
         self.bs_sc_eigenvecs = bs_sc.eigenvectors[0]  # shape (nkpts, natoms*xyz, nbands)
 
-    def _calculate_weights_one_kpt(self, kpt_idx: int):  # TODO: TODO: TODO: continue here
+    def _calculate_weights_one_kpt(self, kpt_idx: int):
         # kpt_cart = self.kpts_cart[kpt_idx]
         # kpt_uc_frac = self.kpts_uc_frac[kpt_idx]
         # kpt_sc_frac = self.kpts_sc_frac[kpt_idx]
@@ -529,13 +548,14 @@ class Unfold:
         return weights / self.nucs_in_sc
 
     def calulate_weights(self):
+        """ Calculate the weights of each band in the supercell phonon band structure. """
         weights = []
         if self.verbose:
             ktp_idx_iterator = tqdm(range(len(self.kpts_uc_frac)), desc="Projecting", ncols=64,)
         else:
             ktp_idx_iterator = range(len(self.kpts_uc_frac))
         for kpt_idx in ktp_idx_iterator:
-            weights.append(self._calculate_weights_one_kpt(kpt_idx))  # TODO: parallelize this by p_tqdm
+            weights.append(self._calculate_weights_one_kpt(kpt_idx))
         self.weights = numpy.array(weights)  # shape (nkpts, nbands)
 
     def _calulate_band_expansion_one_kpt(self, kpt_idx: int, grid: numpy.ndarray, sigma: float):
@@ -546,6 +566,7 @@ class Unfold:
         return proj_energies_expanded
 
     def calculate_band_expansion(self, grid: Optional[numpy.ndarray] = None, sigma: Optional[float] = None):
+        """ Calculate the band structure expansion on a grid in band space. """
         if (grid is None) and (sigma is None):
             # grid = numpy.linspace(0, 0.2, 201)
             _div = (self.bs_sc_energies.max() - self.bs_sc_energies.min()) / 2000
@@ -570,19 +591,18 @@ class Unfold:
         return grid, sigma
 
     def save(self, fpath: str):
-        """to be implemented properly"""
-        pass
-        # with open(fpath, "wb") as f:
-        #     pickle.dump(self, f)
+        """Save the Unfold object to a file using pickle"""
+        with open(fpath, "wb") as f:
+            pickle.dump(self, f)
 
     @classmethod
     def load(cls, fpath: str):
-        """to be implemented properly"""
-        pass
-        # with open(fpath, "rb") as f:
-        #     this_load = pickle.load(f)
-        # assert isinstance(this_load, cls)
-        # return this_load
+        """Load an Unfold object from a file using pickle"""
+        with open(fpath, "rb") as f:
+            loaded_obj = pickle.load(f)
+        if not isinstance(loaded_obj, cls):
+            raise TypeError(f"Loaded object is not an instance of {cls.__name__}")
+        return loaded_obj
 
 
 def gaussian_function(x: numpy.ndarray, mu: Union[int, numpy.ndarray] = 0, sigma: int = 1e-2):
@@ -639,7 +659,7 @@ def concatenate_bands(
 
 
 class UnfoldTwistBilayer:
-    """unfold twisted bilayer to one layer in a primitive bilayer cell"""
+    """unfold twisted bilayer to one layer in a monolayer unitcell"""
 
     def __init__(
         self,
