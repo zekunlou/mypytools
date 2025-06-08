@@ -535,16 +535,41 @@ class Unfold:
         """ prepare supercell modes """
         sc_modes = self.bs_sc_eigenvecs[kpt_idx]  # shape (sc_natoms*xyz, sc_nbands)
         if self.unfold_atoms_indices is not None:
-            """ unfolding only involves part of the phonopy supercell """
+            """
+            unfolding only involves part of the phonopy supercell
+            uc_modes: unitcell modes, but tiled to supercell format
+                - sc_uf_natoms = uc2sc_natoms: the number of atoms in the supercell created by transformation matrix, i.e. number of atoms in the layer to be projected
+                - shape (sc_uf_natoms*xyz, uc_nmodes=sc_uf_natoms*xyz)
+                - eigen_uc2sc (atoms_)
+            sc_modes: supercell modes, containing all atoms
+                - shape (sc_natoms*xyz, sc_nbands=sc_natoms*xyz)
+                - eigen_sc: (atom*3, atom*3)
+            sc_uf_modes: supercell modes for those atoms to be projected
+                - shape (sc_uf_natoms*)
+            """
             sc_uf_modes = sc_modes.reshape(sc_natoms, 3, 3*sc_natoms)
             sc_uf_modes = sc_uf_modes[self.unfold_atoms_indices]  # take only the motion of atoms to be unfolded
             sc_uf_modes = sc_uf_modes.reshape(3*sc_uf_natoms, 3*sc_natoms)  # shape (sc_uf_natoms*xyz, sc_nmodes)
             weights = numpy.einsum("in,ib->nb", uc2sc_modes.conj(), sc_uf_modes)  # shape (uc_nmodes, sc_nbands)
             weights = (numpy.abs(weights) ** 2).sum(axis=0)  # shape (sc_nbands,)
         else:
-            """ unfolding involves the whole phonopy supercell """
+            """
+            what's doing here: unfolding involves the whole phonopy supercell
+            band: phonon displacement
+            mode: just xyz
+            | uc_band > = C * | uc_mode >
+            < sc_band | uc_mode > < uc_mode | sc_band >: overlap between one uc mode (not uc mode) and one sc band
+            < sc_band | uc_mode > < uc_mode | sc_band >
+                = < sc_band | C^{-1} | uc_band > < uc_band | C | sc_band >
+            \sum_{uc} < sc_band | uc_mode > < uc_mode | sc_band >: `weights` here, contribution of this sc band at this kpoint.
+            \sum_{uc} < sc_band | uc_mode > < uc_mode | sc_band >
+                = \sum_{uc} < sc_band | C^{-1} | uc_band > < uc_band | C | sc_band >
+            """
             weights = numpy.einsum("in,ib->nb", uc2sc_modes.conj(), sc_modes)  # shape (uc_nmodes, sc_nbands)
             weights = (numpy.abs(weights) ** 2).sum(axis=0)  # shape (sc_nbands,)
+            _weights_check = numpy.einsum("ji,ij->j", weights.conj().T, weights)  # shape (sc_nbands,)
+            assert numpy.allclose(weights, _weights_check)  # double check
+            # weights = numpy.diag(numpy.matmul(weights.conj().T, weights))  # shape (sc_nbands,)
         return weights / self.nucs_in_sc
 
     def calulate_weights(self):
@@ -606,6 +631,26 @@ class Unfold:
 
 
 def gaussian_function(x: numpy.ndarray, mu: Union[int, numpy.ndarray] = 0, sigma: int = 1e-2):
+    """Calculate Gaussian function values for given parameters.
+
+    This function computes the Gaussian (normal) distribution function:
+    f(x) = exp(-(x-mu)^2/(2*sigma^2))/(sigma*sqrt(2*pi))
+
+    Args:
+        x (numpy.ndarray): Input array for which to calculate Gaussian values.
+        mu (Union[int, numpy.ndarray], optional): Mean(s) of the Gaussian distribution.
+            If int, a single Gaussian is calculated.
+            If numpy.ndarray, multiple Gaussians are calculated. Defaults to 0.
+        sigma (int, optional): Standard deviation of the Gaussian distribution. Defaults to 1e-2.
+
+    Raises:
+        ValueError: If mu is neither int nor numpy.ndarray.
+
+    Returns:
+        numpy.ndarray: Gaussian function values.
+            If mu is int: output shape matches x.shape
+            If mu is numpy.ndarray: output shape is mu.shape times x.shape (tensor product)
+    """
     if isinstance(mu, int):
         pass  # return shape: x.shape
     elif isinstance(mu, numpy.ndarray):
@@ -666,3 +711,4 @@ class UnfoldTwistBilayer:
     ):
         """to be implemented"""
         pass
+

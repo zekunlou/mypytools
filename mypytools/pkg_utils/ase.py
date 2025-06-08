@@ -136,8 +136,60 @@ def match_two_2d_atoms_pbc_with_2d_shift(
     return ret_dict
 
 
-def match_by_pbc_frac():
-    """actually the best way should be match two atoms by PBC fractional coordinates"""
+def fractional_part_around_zero(arr: numpy.ndarray):
+    """Convert fractional parts of array elements to range [-0.5, 0.5).
+
+    This function takes the fractional part of each element in the input array
+    and maps it to the range [-0.5, 0.5) by subtracting 1.0 from fractional
+    parts that are >= 0.5.
+
+    Args:
+        arr: Input array of numeric values.
+
+    Returns:
+        numpy.ndarray: Array with fractional parts mapped to the range [-0.5, 0.5).
+
+    Examples:
+        >>> import numpy as np
+        >>> arr = np.array([0.3, 0.7, 1.2, -0.8])
+        >>> fractional_part_around_zero(arr)
+        array([ 0.3, -0.3,  0.2, 0.2])
+    """
+    return numpy.where((arr % 1.0) >= 0.5, (arr % 1.0) - 1.0, arr % 1.0)
+
+
+def match_two_2d_atoms_pbc_with_2d_frac_shift(
+    a: Atoms,
+    b: Atoms,
+    shift_0_frac: float = 0.01,
+    shift_0_seg: int = 11,
+    shift_1_frac: float = 0.01,
+    shift_1_seg: int = 11,
+    spatial_tolerance: float = 1e-2,
+    ignore_z: bool = True,  # if taking z-coordinate into account in the matching
+):
+    """
+    actually the best way should be match two atoms by PBC fractional coordinates
+    """
+    a = a.copy()  # make sure we do not modify the original objects
+    b = b.copy()
+    assert a.pbc[2] and b.pbc[2], "Both Atoms objects must have PBC in the z direction."
+    assert numpy.allclose(a.cell[:2], b.cell[:2], rtol=1e-5), "Cells in the xy plane must match."
+    a.cell[2, 2], b.cell[2, 2] = 100.0, 100.0  # set a large value for the z-coordinate to avoid PBC issues
+
+    z_shift_b2a = numpy.mean(a.positions[:, 2]) - numpy.mean(b.positions[:, 2])
+    b.positions[:, 2] += z_shift_b2a  # align z-coordinates by mean value
+    cell_avg = (a.cell + b.cell) / 2.0  # average cell
+    shifts_frac = numpy.array(
+        [
+            [frac0, frac1, 0.0]
+            for frac0 in numpy.linspace(-shift_0_frac, shift_0_frac, shift_0_seg)
+            for frac1 in numpy.linspace(-shift_1_frac, shift_1_frac, shift_1_seg)
+        ]
+    )
+    # TODO: continue here
+
+
 
 
 def match_two_atoms_sgd():
