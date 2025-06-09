@@ -72,6 +72,7 @@ def match_two_2d_atoms_pbc_with_2d_shift(
     a.cell[2, 2], b.cell[2, 2] = 100.0, 100.0  # set a large value for the z-coordinate to avoid PBC issues
 
     # check if ignore_z is reasonable by checking minimul inlayer xy distance
+    # I mean, if there are atoms with very close xy coordinate but different z coordinates, ignore_z should be False
     if ignore_z:
         # calculate the minimum distance in xy plane
         atoms_dist_xy = numpy.linalg.norm(a.positions[:, None, :2] - b.positions[None, :, :2], axis=2)
@@ -99,10 +100,10 @@ def match_two_2d_atoms_pbc_with_2d_shift(
     # then try to match atoms with wrapping and shifts
     a.wrap()
     b.wrap()
-    if_matched = False
+    if_matched_spatially = False
     b_shifted_list = []
     atoms_dist_list = []
-    for _, this_shift_realspace in enumerate(shift_realspace):
+    for this_idx, this_shift_realspace in enumerate(shift_realspace):
         this_b = b.copy()
         this_b.positions += this_shift_realspace
         this_b.wrap()
@@ -117,22 +118,35 @@ def match_two_2d_atoms_pbc_with_2d_shift(
             )  # shape (natoms, natoms)
         atoms_dist_list.append(numpy.sum(atoms_dist < spatial_tolerance))
         # print(numpy.sum(atoms_dist < spatial_tolerance), len(a))  # for debug
-        if_matched = numpy.sum(atoms_dist < spatial_tolerance) == len(a)
+        if_matched_spatially = numpy.sum(atoms_dist < spatial_tolerance) == len(a)
 
-        if if_matched:
+        if if_matched_spatially:
+            # TODO: add if_matched_species
             # found a match, return the shift and indices
+            atoms_dist_matched = atoms_dist[atoms_dist < spatial_tolerance]  # shape (natoms, )
+            assert len(atoms_dist_matched) == len(a), (
+                f"len(atoms_dist_matched)={len(atoms_dist_matched)} != len(a)={len(a)}, "
+                "please check the structures visually first, shift the two structures to a nice starting position."
+            )
             ret_dict = {
                 "shift_position": this_shift_realspace + numpy.array([0.0, 0.0, z_shift_b2a]),  # shift in from b to a
                 "atoms_indices_a2b": numpy.argmin(atoms_dist, axis=0),  # b = a[atoms_indices_a2b]
                 "atoms_indices_b2a": numpy.argmin(atoms_dist, axis=1),  # a = b[atoms_indices_b2a]
                 "a_wrapped": a.copy(),  # just wrapped, not shifted
                 "b_shifted_wrapped": this_b.copy(),  # shifted and wrapped
-                "max_atoms_dist": numpy.max(atoms_dist),  # max distance between matched atoms
+                "atoms_dist_matched": atoms_dist_matched,  # max distance between matched atoms
+                "atoms_dist_list": numpy.array(atoms_dist_list),  # list of matched atoms for each shift
+                "number_of_attempts": this_idx + 1,  # number of attempts to match
             }
             break
         else:
-            ret_dict = None
+            ret_dict = {
+                "atoms_dist_list": numpy.array(atoms_dist_list),  # list of distances for each shift
+            }
 
+    if not if_matched_spatially:  # if didn't match, provide suggestions
+        print("No match found, please check the structures visually first, shift the two structures to a nice " \
+            "starting position, and consider tuning spatial_tolerance.")
     return ret_dict
 
 

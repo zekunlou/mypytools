@@ -394,6 +394,14 @@ class Unfold:
         self.verbose = verbose
         self.prepare()
 
+    def __repr__(self):
+        return (
+            f"Unfold(uc={self.uc.symbols}, sc={self.sc.symbols}, tmat={self.tmat}, "
+            f"angle={self.angle:.3f}, spa_tol={self.spa_tol:.2e}, "
+            f"unfold_atoms_indices={self.unfold_atoms_indices}, "
+            f"perm_idx_i2g={self.perm_idx_i2g}, perm_idx_g2i={self.perm_idx_g2i})"
+        )
+
     def prepare(self,):
         """(reciprocal) lattice vectors (row vectors)
         Relations:
