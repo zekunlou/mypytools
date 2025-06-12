@@ -1,5 +1,6 @@
 import os
 import pickle
+import time
 from typing import Literal, Optional, Union
 
 import ase
@@ -472,6 +473,7 @@ class Unfold:
         self,
         dyn_sc: Union[DynamicalMatrix, DynamicalMatrixNAC],
         factor: Union[float, str] = VaspToEv,
+        save_fpath: Optional[str] = None,
     ):
         """Calculate phonon band structure in the supercell.
 
@@ -484,6 +486,10 @@ class Unfold:
             factor (Union[float, str]): Energy conversion factor. Can be a float or string.
                 Supported strings: "ev", "mev", "thz", "cm".
                 Defaults to `VaspToEv`, or equivalently `"ev"`.
+            save_fpath (Optional[str]): Path to save the band structure data, should be a .npz file.
+                If None, the data will not be saved. Defaults to None.
+
+        TODO: add save and load functions for supercell bands
         """
 
         if isinstance(factor, float):
@@ -513,14 +519,53 @@ class Unfold:
         # self.bs_sc_eigenvecs = self.bs_sc_eigenvecs.reshape(nkpts, natoms3_uc // 3, 3, nbands_uc)
 
         # calculate band structure in the supercell
+        time_start = time.time()
         bs_sc = BandStructure(
             paths=[self.kpts_sc_frac],
             dynamical_matrix=dyn_sc,
             with_eigenvectors=True,
             factor=factor,
         )
+        time_end = time.time()
         self.bs_sc_energies = bs_sc.frequencies[0]
         self.bs_sc_eigenvecs = bs_sc.eigenvectors[0]  # shape (nkpts, natoms*xyz, nbands)
+        print(
+            f"Band structure: {time_end - time_start:.2f} seconds for {len(self.kpts_sc_frac)} k-points,",
+            f"so {(time_end - time_start) / len(self.kpts_sc_frac):.2f} seconds per k-point."
+        )
+        if save_fpath is None:
+            pass
+        else:
+            if not save_fpath.endswith(".npz"):
+                print("WARNING: save_fpath should end with .npz, adding it automatically.")
+                save_fpath += ".npz"
+            os.makedirs(os.path.dirname(save_fpath), exist_ok=True)
+            numpy.savez(
+                file=save_fpath,
+                bs_sc_energies = bs_sc.frequencies[0],  # array, shape (nkpts, nbands)
+                bs_sc_eigenvecs = bs_sc.eigenvectors[0],  # array, shape (nkpts, natoms*xyz, nbands)
+                kpts_sc_frac = self.kpts_sc_frac,  # array, shape (nkpts, 3)
+                factor = factor,  # float
+            )
+
+    def load_sc_phonon(
+        self,
+        save_fpath: str,
+    ):
+        """Load phonon band structure in the supercell from file.
+
+        Args:
+            save_fpath (str): Path to the saved phonon band structure file.
+        """
+        assert os.path.exists(save_fpath), f"File {save_fpath} does not exist."
+        data = numpy.load(save_fpath, allow_pickle=True)
+        assert data["bs_sc_energies"].shape[0] == self.kpts_sc_frac.shape[0]
+        assert data["bs_sc_energies"].shape[1] == len(self.sc) * 3
+        assert data["bs_sc_eigenvecs"].shape[1] == len(self.sc) * 3
+        self.bs_sc_energies = data["bs_sc_energies"]  # array, shape (nkpts, nbands)
+        self.bs_sc_eigenvecs = data["bs_sc_eigenvecs"]  # array, shape (nkpts, natoms*xyz, nbands)
+        assert numpy.allclose(self.kpts_sc_frac, data["kpts_sc_frac"])  # array, shape (nkpts, 3)
+        return data["factor"]  # ref to VaspToXXXX
 
     def _calculate_weights_one_kpt(self, kpt_idx: int):
         # kpt_cart = self.kpts_cart[kpt_idx]

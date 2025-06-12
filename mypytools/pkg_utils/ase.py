@@ -134,7 +134,7 @@ def match_two_2d_atoms_pbc_with_2d_shift(
                 "atoms_indices_b2a": numpy.argmin(atoms_dist, axis=1),  # a = b[atoms_indices_b2a]
                 "a_wrapped": a.copy(),  # just wrapped, not shifted
                 "b_shifted_wrapped": this_b.copy(),  # shifted and wrapped
-                "atoms_dist_matched": atoms_dist_matched,  # max distance between matched atoms
+                "atoms_dist_matched": atoms_dist_matched,  # distance between matched atoms
                 "atoms_dist_list": numpy.array(atoms_dist_list),  # list of matched atoms for each shift
                 "number_of_attempts": this_idx + 1,  # number of attempts to match
             }
