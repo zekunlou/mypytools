@@ -43,6 +43,10 @@ class Ovlp_Block_SVDResult:
     time: float = 0.0
     target_fpath: str = None  # where you can find the original matrix
 
+    @property
+    def nblocks(self):
+        return len(self.blocks_indices)
+
     def save(self, fpath: str):
         with open(fpath, "wb") as f:
             pickle.dump(
