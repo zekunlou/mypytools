@@ -5,7 +5,7 @@ from ase import Atoms
 from ase.build import make_supercell
 
 
-def generate_phonon_visuals(
+def generate_phonon_realspace_displacements(
     atoms: Atoms,
     ph_eigvec: numpy.ndarray,
     k: numpy.ndarray,
@@ -105,3 +105,6 @@ def generate_phonon_visuals(
         ph_frames.append(this_atoms)
 
     return ph_frames
+
+generate_phonon_visuals = generate_phonon_realspace_displacements
+
