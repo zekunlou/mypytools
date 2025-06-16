@@ -89,7 +89,7 @@ def generate_phonon_visuals(
     ph_amp = (
         amp_factor * numpy.abs(sc_eigvec) * (supercell_atoms.get_masses() ** (-0.5))[:, None]
     )  # shape (n_sc_atoms, xyz)
-    ph_disp_time = numpy.linspace(0, 2 * numpy.pi, num_frames)  # omega*t for one period
+    ph_disp_time = numpy.linspace(0, 2 * numpy.pi, num_frames, endpoint=False)  # omega*t for one period, dont include endpoint
 
     # Calculate displacements for each frame
     ph_disp = ph_amp[None, :] * numpy.sin(
