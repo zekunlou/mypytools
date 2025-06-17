@@ -78,6 +78,7 @@ def _estimate_initial_parameters(
     n_gaussians: int,
     mus: Optional[Union[float, list[float]]] = None,
     sigmas: Optional[Union[float, list[float]]] = None,
+    amps: Optional[Union[float, list[float]]] = None,
 ) -> numpy.ndarray:
     """
     Estimate initial parameters for Gaussian fitting.
@@ -124,8 +125,19 @@ def _estimate_initial_parameters(
             initial_sigmas = numpy.concatenate([initial_sigmas, remaining])
 
     # Estimate initial amplitudes
-    max_y = numpy.max(data_y)
-    initial_amps = numpy.full(n_gaussians, max_y / n_gaussians)
+    if amps is None:
+        # Use a fraction of the maximum value of data_y
+        max_y = numpy.max(data_y)
+        initial_amps = numpy.full(n_gaussians, max_y / n_gaussians)
+    elif isinstance(amps, (int, float)):
+        initial_amps = numpy.full(n_gaussians, amps)
+    else:
+        initial_amps = numpy.array(amps[:n_gaussians])
+        if len(initial_amps) < n_gaussians:
+            max_y = numpy.max(data_y)
+            default_amp = max_y / n_gaussians
+            remaining = numpy.full(n_gaussians - len(initial_amps), default_amp)
+            initial_amps = numpy.concatenate([initial_amps, remaining])
 
     # For peaks found, use actual peak heights
     if mus is None:
@@ -152,6 +164,7 @@ def fit_with_gaussian(
     n_gaussians: int,
     mus: Optional[Union[float, list[float]]] = None,
     sigmas: Optional[Union[float, list[float]]] = None,
+    amps: Optional[Union[float, list[float]]] = None,
 ) -> tuple[numpy.ndarray, numpy.ndarray, float]:
     """
     Fit a spectrum with multiple Gaussian functions.
@@ -164,6 +177,8 @@ def fit_with_gaussian(
             range of data_x, or estimated from peaks if possible.
         sigmas: Initial guess for the standard deviations of the Gaussian functions. If None, will be set to a small
             value based on data range.
+        amps: Initial guess for the amplitudes of the Gaussian functions. If None, will be set to a fraction of the
+            maximum value of data_y.
 
     Returns:
         fitted_params: numpy.ndarray: Fitted parameters for the Gaussian functions.
@@ -185,7 +200,7 @@ def fit_with_gaussian(
         raise ValueError("Not enough data points for fitting. Need at least 3 points per Gaussian.")
 
     # Get initial parameter estimates
-    initial_params = _estimate_initial_parameters(data_x_clean, data_y_clean, n_gaussians, mus, sigmas)
+    initial_params = _estimate_initial_parameters(data_x_clean, data_y_clean, n_gaussians, mus, sigmas, amps)
 
     # Set bounds to ensure physical constraints
     # Lower bounds: [amp_min, mu_min, sigma_min, ...]
@@ -199,8 +214,8 @@ def fit_with_gaussian(
 
     for _ in range(n_gaussians):
         # Amplitude bounds
-        lower_bounds.extend([0, x_min - x_range, 1e-6])  # Positive amplitude, flexible mu, small positive sigma
-        upper_bounds.extend([y_max * 2, x_max + x_range, x_range])  # Reasonable upper limits
+        lower_bounds.extend([1e-3, x_min - 0.1*x_range, 1e-2])  # Positive amplitude, flexible mu, small positive sigma
+        upper_bounds.extend([y_max * 2, x_max + 0.1*x_range, 5e-1])  # Reasonable upper limits
 
     try:
         # Perform the fit with error estimation
@@ -241,8 +256,8 @@ def fit_with_gaussian(
         return fitted_params, param_errors, rmse
 
     except Exception as e:
-        raise RuntimeError(f"Fitting failed: {str(e)}. Try adjusting initial parameters or reducing n_gaussians.") \
-            from e
+        raise RuntimeError(f"Fitting failed: {str(e)}. Try adjusting initial parameters and upper / lower bounds,"\
+                           "or reducing n_gaussians.") from e
 
 
 # Example usage and testing function
