@@ -59,7 +59,8 @@ def save_phonon_modes_for_viz(
     )
     return fpath
 
-def generate_phonon_visuals(
+
+def generate_phonon_realspace_displacements(
     atoms: Atoms,
     ph_eigvec: numpy.ndarray,
     k: numpy.ndarray,
