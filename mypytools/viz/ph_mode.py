@@ -1,5 +1,7 @@
 """visualize phonon modes"""
 
+import pickle
+
 import numpy
 from ase import Atoms
 from ase.build import make_supercell
@@ -16,17 +18,17 @@ def save_phonon_modes_for_viz(
     """
     Save phonon modes data for visualization.
     This function saves phonon eigenvectors, corresponding k-points, and atomic structure
-    to an NPZ file for later visualization of phonon modes.
+    to an PKL file for later visualization of phonon modes.
     Args:
         atoms (Atoms): Atomic structure object.
         ph_eigvec_list (list[numpy.ndarray]): List of phonon eigenvectors. Each eigenvector
             should be a 1D array of size 3*natoms representing displacement vectors for all atoms.
         k_list (list[numpy.ndarray]): List of k-points corresponding to each eigenvector.
             Each k-point should be a 1D array of size 3.
-        other_data (dict, optional): Additional data to save in the NPZ file, like energies and indices.
+        other_data (dict, optional): Additional data to save in the PKL file, like energies and indices.
             Defaults to None.
         comment (str, optional): Comment to include with the saved data. Defaults to "".
-        fpath (str, optional): File path where to save the NPZ file. If None, a default name
+        fpath (str, optional): File path where to save the PKL file. If None, a default name
             based on the number of modes will be used. Defaults to None.
     Raises:
         AssertionError: If ph_eigvec_list and k_list have different lengths.
@@ -46,18 +48,25 @@ def save_phonon_modes_for_viz(
     assert all([k.ndim == 1 for k in k_list])
     assert all([k.size == 3 for k in k_list])
     if fpath is None:
-        fpath = f"phonon_modes_{len(ph_eigvec_list)}.npz"
-    if other_data is None:
-        other_data = dict()
-    numpy.savez(
-        fpath,
-        ph_eigvec_list=ph_eigvec_list,
-        k_list=k_list,
-        atoms=atoms,
-        comment=comment,
-        **other_data,
-    )
+        fpath = f"phonon_modes_{len(ph_eigvec_list)}.pkl"
+    data = {
+        "atoms": atoms,
+        "ph_eigvec_list": ph_eigvec_list,
+        "k_list": k_list,
+        "comment": comment,
+    }
+    if other_data is not None:
+        assert isinstance(other_data, dict), "other_data should be a dictionary"
+        data.update(other_data)
+    else:
+        pass
+
+    with open(fpath, "wb") as f:
+        pickle.dump(data, f)
+
     return fpath
+
+
 
 
 def generate_phonon_realspace_displacements(
