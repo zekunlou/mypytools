@@ -333,9 +333,10 @@ class Unfold:
 
     def __init__(
         self,
-        unitcell: ase.Atoms,
-        supercell: ase.Atoms,  # should be the one from phonon calculation
-        transformation_matrix: numpy.ndarray,  # wrapping or not is not important
+        unitcell: ase.Atoms,  # very primitive cell
+        supercell: ase.Atoms,  # one layer in the twisted bilayer, phonopy.unitcell
+        transformation_matrix: numpy.ndarray,  # from unitcell to supercell
+        transformation_matrix_ph: numpy.ndarray = None,  # from phonopy.unitcell to phonopy.supercell
         angle: Optional[float] = None,
         spatial_tolerance: float = 5e-2,
         unfold_atoms_indices: Optional[numpy.ndarray] = None,
@@ -386,6 +387,7 @@ class Unfold:
         self.uc = unitcell.copy()
         self.sc = supercell.copy()
         self.tmat = transformation_matrix
+        self.tmat_ph = transformation_matrix_ph  # not necessarily required in current procedure
         self.angle = angle
         self.sc_by_mat = None
         self.unfold_atoms_indices = unfold_atoms_indices
@@ -397,7 +399,8 @@ class Unfold:
 
     def __repr__(self):
         return (
-            f"Unfold(uc={self.uc.symbols}, sc={self.sc.symbols}, tmat={self.tmat}, "
+            f"Unfold(uc={self.uc.symbols}, sc={self.sc.symbols},"
+            f"tmat={self.tmat}, tmat_ph={self.tmat_ph},",
             f"angle={self.angle:.3f}, spa_tol={self.spa_tol:.2e}, "
             f"unfold_atoms_indices={self.unfold_atoms_indices}, "
             f"perm_idx_i2g={self.perm_idx_i2g}, perm_idx_g2i={self.perm_idx_g2i})"
