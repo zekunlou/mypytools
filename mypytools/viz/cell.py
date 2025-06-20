@@ -70,5 +70,52 @@ def visualize_cell_2d(
     return ax
 
 
+def add_frame_box_2d(
+    cell: numpy.ndarray,
+    disp: numpy.ndarray = None,
+    linewidth: float = 1.0,
+    color: str = "black",
+    linestyle: str = "dashed",
+    alpha: float = 1.0,
+    ax=None,
+):
+    if ax is None:
+        ax = plt.gca()
+
+    plt_kwargs = {
+        "color": color,
+        "linewidth": linewidth,
+        "linestyle": linestyle,
+        "alpha": alpha,
+    }
+    assert cell.shape == (3, 3), "cell must be a 3x3 matrix"
+    if not isinstance(cell, numpy.ndarray):
+        cell = numpy.array(cell)
+    if disp is None:
+        disp = numpy.zeros((3,))
+    cell_2d = [cell[0, :2], cell[1, :2]]
+    ax.plot(
+        [disp[0], disp[0] + cell_2d[0][0]],
+        [disp[1], disp[1] + cell_2d[0][1]],
+        **plt_kwargs,
+    )
+    ax.plot(
+        [disp[0], disp[0] + cell_2d[1][0]],
+        [disp[1], disp[1] + cell_2d[1][1]],
+        **plt_kwargs,
+    )
+    ax.plot(
+        [disp[0] + cell_2d[0][0], disp[0] + cell_2d[0][0] + cell_2d[1][0]],
+        [disp[1] + cell_2d[0][1], disp[1] + cell_2d[0][1] + cell_2d[1][1]],
+        **plt_kwargs,
+    )
+    ax.plot(
+        [disp[0] + cell_2d[1][0], disp[0] + cell_2d[0][0] + cell_2d[1][0]],
+        [disp[1] + cell_2d[1][1], disp[1] + cell_2d[0][1] + cell_2d[1][1]],
+        **plt_kwargs,
+    )
+    return ax
+
+
 if __name__ == "__main__":
     pass
