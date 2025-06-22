@@ -210,11 +210,16 @@ def fractional_part_around_zero(arr: numpy.ndarray):
         numpy.ndarray: Array with fractional parts mapped to the range [-0.5, 0.5).
 
     Examples:
-        >>> import numpy as np
-        >>> arr = np.array([0.3, 0.7, 1.2, -0.8])
-        >>> fractional_part_around_zero(arr)
-        array([ 0.3, -0.3,  0.2, 0.2])
+        >>> import numpy
+        >>> arr = numpy.array([-1.5, -0.5, 0.5, 1.5, 2.5])
+        >>> eps = 1e-15  # float64 minimum precision is about 2.22e-16
+        >>> fractional_part_around_zero(arr), \
+                fractional_part_around_zero(arr - eps)
+        (array([-0.5, -0.5, -0.5, -0.5, -0.5]), array([0.5, 0.5, 0.5, 0.5, 0.5]))
     """
+    # return arr - numpy.round(arr)  # this is wrong, because
+    # "For values exactly halfway between rounded decimal values, NumPy rounds to the nearest even value.
+    # Thus 1.5 and 2.5 round to 2.0, -0.5 and 0.5 round to 0.0, etc."
     return numpy.where((arr % 1.0) >= 0.5, (arr % 1.0) - 1.0, arr % 1.0)
 
 
