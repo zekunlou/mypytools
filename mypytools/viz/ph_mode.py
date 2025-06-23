@@ -67,8 +67,6 @@ def save_phonon_modes_for_viz(
     return fpath
 
 
-
-
 def generate_phonon_realspace_displacements(
     atoms: Atoms,
     ph_eigvec: numpy.ndarray,
@@ -172,3 +170,158 @@ def generate_phonon_realspace_displacements(
 
 generate_phonon_visuals = generate_phonon_realspace_displacements
 
+
+def viz_gamma_ph_2d(
+    atoms: Atoms,
+    ph_eigvec: numpy.ndarray,
+    arrow_scale: float = 10.0,
+    ax=None,
+    show_colorbar_title: bool = True,
+):
+    """
+    Visualize gamma point phonon of 2D material.
+
+    Parameters:
+    -----------
+    atoms : ASE Atoms object
+        The atomic structure
+    ph_eigvec : numpy.ndarray
+        Phonon eigenvectors. Shape should be (n_atoms, 3) or (3*n_atoms,) or (n_atoms, 3, n_modes)
+    arrow_scale : float, default=10.0
+        Scaling factor for arrow lengths
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure
+    show_colorbar_title : bool, default=True
+        Whether to show title for colorbar
+
+    Returns:
+    --------
+    ax : matplotlib.axes.Axes
+        The axes with the plot
+
+    Notes:
+    ------
+    - Shows z-motion as arrow color using RdBu colormap (red=positive, blue=negative)
+    - Shows x,y motion as arrows with lengths proportional to displacement
+    - Arrow centers are positioned at atom locations
+    - Different colors for atoms at different z-layers
+    """
+    import matplotlib.colors as mcolors
+    import matplotlib.pyplot as plt
+
+    # ========== Data Validation Assertions ==========
+    assert hasattr(atoms, "positions"), "atoms must be an ASE Atoms object with positions attribute"
+    assert hasattr(atoms, "__len__"), "atoms must have length (number of atoms)"
+    assert isinstance(ph_eigvec, numpy.ndarray), "ph_eigvec must be a numpy array"
+    assert len(atoms) > 0, "atoms object must contain at least one atom"
+    assert arrow_scale > 0, "arrow_scale must be positive"
+    assert numpy.isfinite(arrow_scale), "arrow_scale must be finite"
+
+    # Get atom positions and validate
+    atoms = atoms.copy()  # Ensure we don't modify original atoms object
+    positions = atoms.positions
+    n_atoms = len(atoms)
+    assert positions.shape == (n_atoms, 3), f"positions shape {positions.shape} != (n_atoms={n_atoms}, 3)"
+    assert numpy.all(numpy.isfinite(positions)), "All atomic positions must be finite"
+
+    # ========== Handle Different Eigenvector Formats ==========
+    if ph_eigvec.ndim == 1:
+        # Flattened array: [x1,y1,z1,x2,y2,z2,...]
+        assert len(ph_eigvec) == 3 * n_atoms, (
+            f"Flattened ph_eigvec length {len(ph_eigvec)} != 3 * n_atoms ({3 * n_atoms})"
+        )
+        eigvec = ph_eigvec.reshape(n_atoms, 3)
+    elif ph_eigvec.ndim == 2:
+        assert ph_eigvec.shape == (n_atoms, 3), f"ph_eigvec shape {ph_eigvec.shape} != (n_atoms={n_atoms}, 3)"
+        eigvec = ph_eigvec
+    else:
+        raise ValueError(f"ph_eigvec must be 1D or 2D array, got {ph_eigvec.ndim}D")
+
+    assert numpy.all(numpy.isfinite(eigvec)), "All eigenvector components must be finite"
+    assert eigvec.dtype == numpy.float64 or eigvec.dtype == numpy.float32, (
+        f"eigvec dtype {eigvec.dtype} must be float64 or float32, got {eigvec.dtype}"
+    )
+
+    # ========== Extract Components Using Vectorization ==========
+    x, y, z = positions.T  # Vectorized unumpy.cking
+    ex, ey, ez = eigvec.T  # Displacement components
+
+    # Create figure if needed
+    if ax is None:
+        ax = plt.gca()
+
+    # Scale in-plane displacements for visualization
+    ex_scaled = ex * arrow_scale
+    ey_scaled = ey * arrow_scale
+
+    # ========== Set Up Z-Component Colormap ==========
+    ez_max = numpy.abs(ez).max()
+    if ez_max > 1e-12:  # Avoid numerical issues
+        # Use symmetric range around zero for proper color centering
+        norm = mcolors.Normalize(vmin=-ez_max, vmax=ez_max)
+    else:
+        # Default range if no z motion
+        norm = mcolors.Normalize(vmin=-1, vmax=1)
+        print("Warning: No significant z-displacement detected")
+
+    # cmap = plt.cm.RdBu_r  # Red-Blue colormap (red=positive, blue=negative)
+    cmap = plt.cm.coolwarm  # Red-Blue colormap (red=positive, blue=negative)
+
+    # ========== Plot Atomic Positions ==========
+    ax.scatter(
+        x, y, s=10, c="darkgray", marker=".", edgecolors=None, alpha=0.8, label="Atoms", zorder=1
+    )
+
+    # ========== Visualize Phonon Displacements ==========
+    # Plot arrows for in-plane motion, colored by z-displacement
+    quiver = ax.quiver(
+        x,
+        y,
+        ex_scaled,
+        ey_scaled,
+        ez,
+        cmap=cmap,
+        norm=norm,
+        scale_units="xy",
+        scale=1,
+        width=0.005,
+        headwidth=3,
+        headlength=4,
+        alpha=0.9,
+        zorder=3,
+    )
+
+    # Add colorbar
+    cbar = plt.colorbar(quiver, ax=ax, shrink=0.8, pad=0.02)
+    if show_colorbar_title:
+        cbar.set_label("Z-displacement (relative units)", fontsize=11)
+    cbar.ax.tick_params(labelsize=9)
+
+    # ========== Calculate and Display Amplitude Statistics ==========
+    # Use vectorized operations for amplitude calculations
+    # amplitude_xyz = numpy.array([numpy.mean(numpy.abs(ex)), numpy.mean(numpy.abs(ey)), numpy.mean(numpy.abs(ez))])
+
+    # max_amplitude = numpy.max(amplitude_xyz)
+    # amplitude_ratio = amplitude_xyz / (max_amplitude + 1e-12)  # Avoid division by zero
+
+    # ========== Format Plot ==========
+    # Create informative title
+    # title = "Gamma Point Phonon Mode Visualization\n"
+    # title += f"Mean |amplitudes|: x={amplitude_xyz[0]:.4f}, y={amplitude_xyz[1]:.4f}, z={amplitude_xyz[2]:.4f}\n"
+    # title += f"Amplitude ratios: x={amplitude_ratio[0]:.2f}, y={amplitude_ratio[1]:.2f}, z={amplitude_ratio[2]:.2f}"
+    # ax.set_title(title, fontsize=10, pad=20)
+
+    # Set equal aspect ratio and add grid
+    # ax.grid(True, alpha=0.3, linewidth=0.5)
+    # ax.tick_params(labelsize=10)
+
+    # # ========== Validation of Results ==========
+    # print(f"Visualization completed:")
+    # print(f"  - {n_atoms} atoms plotted")
+    # print(f"  - Max in-plane motion: {numpy.max(in_plane_magnitude):.4f}")
+    # print(f"  - Max z-displacement: {ez_max:.4f}")
+    # print(f"  - Arrow scaling factor: {arrow_scale}")
+
+    ax.set_aspect("equal")
+
+    return ax
