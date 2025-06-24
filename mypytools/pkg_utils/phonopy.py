@@ -212,6 +212,7 @@ def compute_L(
     lgt = natoms**0.5 * numpy.abs(lgt)  # shape (nqpoints, nbands), need natoms**0.5 here to ensure max=1
     return lgt
 
+
 def compute_V(
     atoms: aseAtoms,
     ph_eigvecs: numpy.ndarray,  # shape (nqpoints, natoms*3, nbands)
@@ -378,8 +379,8 @@ class Unfold:
         angle: Optional[float] = None,
         spatial_tolerance: float = 5e-2,
         unfold_atoms_indices: Optional[numpy.ndarray] = None,
-        perm_idx_i2g:Optional[numpy.ndarray] = None,
-        perm_idx_g2i:Optional[numpy.ndarray] = None,
+        perm_idx_i2g: Optional[numpy.ndarray] = None,
+        perm_idx_g2i: Optional[numpy.ndarray] = None,
         verbose: bool = False,
     ):
         """Unfold phonon band structure from phonopy supercell to a unit cell
@@ -437,14 +438,15 @@ class Unfold:
 
     def __repr__(self):
         return (
-            f"Unfold(uc={self.uc.symbols}, sc={self.sc.symbols},"
-            f"tmat={self.tmat}, tmat_ph={self.tmat_ph},",
+            f"Unfold(uc={self.uc.symbols}, sc={self.sc.symbols},tmat={self.tmat}, tmat_ph={self.tmat_ph},",
             f"angle={self.angle:.3f}, spa_tol={self.spa_tol:.2e}, "
             f"unfold_atoms_indices={self.unfold_atoms_indices}, "
-            f"perm_idx_i2g={self.perm_idx_i2g}, perm_idx_g2i={self.perm_idx_g2i})"
+            f"perm_idx_i2g={self.perm_idx_i2g}, perm_idx_g2i={self.perm_idx_g2i})",
         )
 
-    def prepare(self,):
+    def prepare(
+        self,
+    ):
         """(reciprocal) lattice vectors (row vectors)
         Relations:
         sc_la_vec = tmat @ uc_la_vec
@@ -467,9 +469,14 @@ class Unfold:
                 assert len(self.perm_idx_g2i) == len(self.unfold_atoms_indices) and len(self.perm_idx_i2g) == len(
                     self.unfold_atoms_indices
                 )
-                assert len(self.unfold_atoms_indices) == len(self.sc_by_mat)  # indices the part to be unfolded in phonopy supercell
-                assert len(numpy.unique(self.unfold_atoms_indices)) == len(self.unfold_atoms_indices)  # should be unique
+                assert len(self.unfold_atoms_indices) == len(
+                    self.sc_by_mat
+                )  # indices the part to be unfolded in phonopy supercell
+                assert len(numpy.unique(self.unfold_atoms_indices)) == len(
+                    self.unfold_atoms_indices
+                )  # should be unique
         else:
+            print("WARNING: it is strongly recommended to provide permutation indices perm_idx_i2g and perm_idx_g2i")
             _match_scs = match_two_atoms(self.sc, self.sc_by_mat, spatial_tolerance=self.spa_tol)
             if _match_scs["fail_reason"] is not None:
                 raise Exception(_match_scs["fail_reason"])
@@ -485,11 +492,7 @@ class Unfold:
         assert numpy.allclose(self.sc_la[:2, :2], (self.tmat @ self.uc_la)[:2, :2], atol=3e-2)  # only compare xy
         assert numpy.allclose(self.uc_bz[:2, :2], (self.tmat.T @ self.sc_bz)[:2, :2], atol=3e-2)  # only compare xy
 
-    def set_kpts_in_unitcell(
-        self,
-        kpts: numpy.ndarray,
-        format: Literal["fractional", "cartesian"] = "fractional"
-    ):
+    def set_kpts_in_unitcell(self, kpts: numpy.ndarray, format: Literal["fractional", "cartesian"] = "fractional"):
         """fractional kpoints in scBZ of the ucBZ (self.kpts_uc_frac)
         k_pos = k-points in k-space
               = kpts_uc_frac @ uc_bz_vec
@@ -572,7 +575,7 @@ class Unfold:
         self.bs_sc_eigenvecs = bs_sc.eigenvectors[0]  # shape (nkpts, natoms*xyz, nbands)
         print(
             f"Band structure: {time_end - time_start:.2f} seconds for {len(self.kpts_sc_frac)} k-points,",
-            f"so {(time_end - time_start) / len(self.kpts_sc_frac):.2f} seconds per k-point."
+            f"so {(time_end - time_start) / len(self.kpts_sc_frac):.2f} seconds per k-point.",
         )
         if save_fpath is None:
             pass
@@ -583,10 +586,10 @@ class Unfold:
             os.makedirs(os.path.dirname(save_fpath), exist_ok=True)
             numpy.savez(
                 file=save_fpath,
-                bs_sc_energies = bs_sc.frequencies[0],  # array, shape (nkpts, nbands)
-                bs_sc_eigenvecs = bs_sc.eigenvectors[0],  # array, shape (nkpts, natoms*xyz, nbands)
-                kpts_sc_frac = self.kpts_sc_frac,  # array, shape (nkpts, 3)
-                factor = factor,  # float
+                bs_sc_energies=bs_sc.frequencies[0],  # array, shape (nkpts, nbands)
+                bs_sc_eigenvecs=bs_sc.eigenvectors[0],  # array, shape (nkpts, natoms*xyz, nbands)
+                kpts_sc_frac=self.kpts_sc_frac,  # array, shape (nkpts, 3)
+                factor=factor,  # float
             )
 
     def load_sc_phonon(
@@ -618,14 +621,18 @@ class Unfold:
         sc_natoms = len(self.sc)
         sc_uf_natoms = len(self.unfold_atoms_indices) if self.unfold_atoms_indices is not None else sc_natoms
         """ prepare unitcell modes, be aware of the permutation """
-        uc_modes = numpy.diag(numpy.ones(3*len(self.uc))).reshape(uc_natoms, 3, 3*uc_natoms)  # uc_nmodes = uc_natoms*xyz
+        uc_modes = numpy.diag(numpy.ones(3 * len(self.uc))).reshape(
+            uc_natoms, 3, 3 * uc_natoms
+        )  # uc_nmodes = uc_natoms*xyz
         uc2sc_modes = numpy.tile(uc_modes, (self.nucs_in_sc, 1, 1))  # shape (sc_natoms, xyz, uc_nmodes)
         # uc2sc_modes = numpy.einsum("n,nxb->nxb", uc2sc_bloch_phases, uc2sc_modes)  # shape (sc_natoms, xyz, uc_nmodes)
         if self.perm_idx_g2i is not None:  # permutate the uc2sc, so unfold_atoms_indices doesn't matter here
             uc2sc_modes = uc2sc_modes[self.perm_idx_g2i]  # permute the modes to match the supercell
-            uc2sc_modes = uc2sc_modes.reshape(3*len(self.perm_idx_g2i), 3*uc_natoms)  # shape (sc_natoms*xyz, uc_nmodes)
+            uc2sc_modes = uc2sc_modes.reshape(
+                3 * len(self.perm_idx_g2i), 3 * uc_natoms
+            )  # shape (sc_natoms*xyz, uc_nmodes)
         else:
-            uc2sc_modes = uc2sc_modes.reshape(3*sc_natoms, 3*uc_natoms)  # shape (sc_natoms*xyz, uc_nmodes)
+            uc2sc_modes = uc2sc_modes.reshape(3 * sc_natoms, 3 * uc_natoms)  # shape (sc_natoms*xyz, uc_nmodes)
         """ prepare supercell modes """
         sc_modes = self.bs_sc_eigenvecs[kpt_idx]  # shape (sc_natoms*xyz, sc_nbands)
         if self.unfold_atoms_indices is not None:
@@ -641,9 +648,9 @@ class Unfold:
             sc_uf_modes: supercell modes for those atoms to be projected
                 - shape (sc_uf_natoms*)
             """
-            sc_uf_modes = sc_modes.reshape(sc_natoms, 3, 3*sc_natoms)
+            sc_uf_modes = sc_modes.reshape(sc_natoms, 3, 3 * sc_natoms)
             sc_uf_modes = sc_uf_modes[self.unfold_atoms_indices]  # take only the motion of atoms to be unfolded
-            sc_uf_modes = sc_uf_modes.reshape(3*sc_uf_natoms, 3*sc_natoms)  # shape (sc_uf_natoms*xyz, sc_nmodes)
+            sc_uf_modes = sc_uf_modes.reshape(3 * sc_uf_natoms, 3 * sc_natoms)  # shape (sc_uf_natoms*xyz, sc_nmodes)
             weights = numpy.einsum("in,ib->nb", uc2sc_modes.conj(), sc_uf_modes)  # shape (uc_nmodes, sc_nbands)
             weights = (numpy.abs(weights) ** 2).sum(axis=0)  # shape (sc_nbands,)
         else:
@@ -667,10 +674,14 @@ class Unfold:
         return weights / self.nucs_in_sc
 
     def calulate_weights(self):
-        """ Calculate the weights of each band in the supercell phonon band structure. """
+        """Calculate the weights of each band in the supercell phonon band structure."""
         weights = []
         if self.verbose:
-            ktp_idx_iterator = tqdm(range(len(self.kpts_uc_frac)), desc="Projecting", ncols=64,)
+            ktp_idx_iterator = tqdm(
+                range(len(self.kpts_uc_frac)),
+                desc="Projecting",
+                ncols=64,
+            )
         else:
             ktp_idx_iterator = range(len(self.kpts_uc_frac))
         for kpt_idx in ktp_idx_iterator:
@@ -685,22 +696,22 @@ class Unfold:
         return proj_energies_expanded
 
     def calculate_band_expansion(self, grid: Optional[numpy.ndarray] = None, sigma: Optional[float] = None):
-        """ Calculate the band structure expansion on a grid in band space. """
+        """Calculate the band structure expansion on a grid in band space."""
         if (grid is None) and (sigma is None):
             # grid = numpy.linspace(0, 0.2, 201)
             _div = (self.bs_sc_energies.max() - self.bs_sc_energies.min()) / 2000
             _overshoot = self.bs_sc_energies.max() * 0.05
-            grid = numpy.arange(
-                self.bs_sc_energies.min() - _overshoot,
-                self.bs_sc_energies.max() + _overshoot,
-                _div
-            )
+            grid = numpy.arange(self.bs_sc_energies.min() - _overshoot, self.bs_sc_energies.max() + _overshoot, _div)
             sigma = 5 * _div
         else:
             assert isinstance(grid, numpy.ndarray) and grid.ndim == 1
             assert isinstance(sigma, float) and sigma > 0
         if self.verbose:
-            ktp_idx_iterator = tqdm(range(len(self.kpts_uc_frac)), desc="Building Grids", ncols=64,)
+            ktp_idx_iterator = tqdm(
+                range(len(self.kpts_uc_frac)),
+                desc="Building Grids",
+                ncols=64,
+            )
         else:
             ktp_idx_iterator = range(len(self.kpts_uc_frac))
         energies_on_grid = []
@@ -764,8 +775,8 @@ def band_expansion(energies: numpy.ndarray, grid: numpy.ndarray, sigma=1e-2):
 
 
 def concatenate_bands(
-    kpts:list[numpy.ndarray],
-    connections:list[bool],
+    kpts: list[numpy.ndarray],
+    connections: list[bool],
 ):
     """take the output of phonopy.phonon.band_structure.get_band_qpoints_and_path_connections
     and remove the duplicated kpoints if two neighboring band kpath has the same start/end point
@@ -781,7 +792,9 @@ def concatenate_bands(
         else:
             kpts_new.append(kpts[i])
     # calculate the indices corresponds to bz_labels
-    bz_labels_indices = [0,]
+    bz_labels_indices = [
+        0,
+    ]
     next_seg_begin_index = 0
     for i in range(len(kpts)):
         if connections[i]:
@@ -789,11 +802,11 @@ def concatenate_bands(
             bz_labels_indices.append(next_seg_begin_index)
         else:
             next_seg_begin_index += kpts[i].shape[0]
-            if i != len(kpts)-1:
-                bz_labels_indices.append(next_seg_begin_index-1)
+            if i != len(kpts) - 1:
+                bz_labels_indices.append(next_seg_begin_index - 1)
                 bz_labels_indices.append(next_seg_begin_index)
             else:
-                bz_labels_indices.append(next_seg_begin_index-1)
+                bz_labels_indices.append(next_seg_begin_index - 1)
     return numpy.concatenate(kpts_new, axis=0), bz_labels_indices
 
 
@@ -805,4 +818,3 @@ class UnfoldTwistBilayer:
     ):
         """to be implemented"""
         pass
-
