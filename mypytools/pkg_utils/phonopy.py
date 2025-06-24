@@ -226,6 +226,10 @@ def compute_V(
     \frac{\hat{z} e_{q,n}^{\alpha}}{\sqrt{e_{q,n}^{\alpha *} e_{q,n}^{\alpha}}}
     \right|
     $$
+
+    Discussion:
+    This metric will over-emphrasize the ones of small displacements.
+    so function `compute_V_p2` is recommended over this one.
     """
 
     # Normalize the ph_eigvec to 1
@@ -239,6 +243,40 @@ def compute_V(
     vtcl = numpy.abs(ph_eigvec_normed[:, :, 2, :])  # shape (nqpoints, natoms, nbands)
     vtcl = natoms**0.5 * vtcl.mean(axis=1)  # shape (nqpoints, nbands)
     return vtcl
+
+
+def compute_V_p2(
+    atoms: aseAtoms,
+    ph_eigvecs: numpy.ndarray,  # shape (nqpoints, natoms*3, nbands)
+) -> numpy.ndarray:
+    r"""verticality (norm by p2, or collective)
+
+    Equation:
+    $$
+    V_{q,n}^{p=2} =
+    \frac{
+        \sum_{\alpha=1}^{N} |\hat{z} e_{q,n}^{\alpha}|^2
+    }{
+        \sum_{\alpha=1}^{N} |e_{q,n}^{\alpha}|^2
+    }
+    $$
+
+    Physical Interpretation:
+    - $V_{q,n} = 0$: purely in-plane vibration
+    - $V_{q,n} = 1$: purely out-of-plane vibration
+    - $V_{q,n} = 0.5$: threshold value (e.g., single atom vibrating 45° from z-axis)
+    """
+
+    # Normalize the ph_eigvec to 1
+    ph_eigvec_normed = ph_eigvecs / numpy.linalg.norm(ph_eigvecs, axis=1)[:, None, :]
+    nqpoints, natoms3, nbands = ph_eigvecs.shape
+    natoms = len(atoms)
+    assert natoms3 == natoms * 3, "Number of phonon displacement basis is not a multiple of 3."
+    ph_eigvec_normed = ph_eigvec_normed.reshape(nqpoints, natoms, 3, nbands)
+
+    vtcl2 = numpy.abs(ph_eigvec_normed[:, :, 2, :])  # shape (nqpoints, natoms, nbands)
+    vtcl2 = numpy.sum(vtcl2**2, axis=1)  # shape (nqpoints, nbands)
+    return vtcl2
 
 
 def rotmat_xOy(angle: float):

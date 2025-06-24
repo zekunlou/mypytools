@@ -294,7 +294,7 @@ def viz_gamma_ph_2d(
     # Add colorbar
     cbar = plt.colorbar(quiver, ax=ax, shrink=0.8, pad=0.02)
     if show_colorbar_title:
-        cbar.set_label("Z-displacement (relative units)", fontsize=11)
+        cbar.set_label("Z-displacement (arb.)", fontsize=11)
     cbar.ax.tick_params(labelsize=9)
 
     # ========== Calculate and Display Amplitude Statistics ==========
