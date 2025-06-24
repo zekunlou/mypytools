@@ -470,6 +470,7 @@ class Unfold:
                 assert len(self.unfold_atoms_indices) == len(self.sc_by_mat)  # indices the part to be unfolded in phonopy supercell
                 assert len(numpy.unique(self.unfold_atoms_indices)) == len(self.unfold_atoms_indices)  # should be unique
         else:
+            print("WARNING: it is strongly recommended to provide permutation indices perm_idx_i2g and perm_idx_g2i")
             _match_scs = match_two_atoms(self.sc, self.sc_by_mat, spatial_tolerance=self.spa_tol)
             if _match_scs["fail_reason"] is not None:
                 raise Exception(_match_scs["fail_reason"])
