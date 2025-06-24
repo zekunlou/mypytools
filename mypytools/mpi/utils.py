@@ -38,7 +38,7 @@ def set_num_cpus(num: int = None):
             "NUMEXPR_NUM_THREADS",
             "OPENBLAS_NUM_THREADS",
         ):
-            os.environ[env_var] = num
+            os.environ[env_var] = str(num)
 
 def distribute_work(job_indexes: List[int], size: int, shuffle: bool = True) -> List[List[int]]:
     """split the job_indexes into size parts

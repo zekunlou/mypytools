@@ -11,3 +11,5 @@ logging.basicConfig(
 )
 
 _log = logging.getLogger(__name__)
+
+from .data_proc import NPArrWithInfo, print_arrinfo

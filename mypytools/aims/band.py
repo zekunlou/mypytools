@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Dict, List, Literal, Tuple, TypedDict, Union, Optional
+from typing import Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
 import matplotlib.pyplot as plt
 import numpy
@@ -52,9 +52,7 @@ def read_bands(band_segments, band_totlength, max_spin_channel, gw):
     band_data = {}
 
     prev_end = band_segments[0][0]
-    distance = (
-        band_totlength / 30.0
-    )  # distance between line segments that do not coincide
+    distance = band_totlength / 30.0  # distance between line segments that do not coincide
 
     xpos = 0.0
     labels = [(0.0, band_segments[0][4])]
@@ -63,9 +61,7 @@ def read_bands(band_segments, band_totlength, max_spin_channel, gw):
     if gw:
         prefix = "GW_"
 
-    for iband, (start, end, length, npoint, startname, endname) in enumerate(
-        band_segments
-    ):
+    for iband, (start, end, length, npoint, startname, endname) in enumerate(band_segments):
         band_data[iband + 1] = []
         if any(start != prev_end):
             xpos += distance
@@ -85,9 +81,7 @@ def read_bands(band_segments, band_totlength, max_spin_channel, gw):
             # kvec = data[:, 1:4]
             band_occupations = data[:, 4::2]
             band_energies = data[:, 5::2]
-            assert (npoint) == len(idx), ValueError(
-                f"{npoint=} != {len(idx)=}, {spin=}, {iband=}"
-            )
+            assert (npoint) == len(idx), ValueError(f"{npoint=} != {len(idx)=}, {spin=}, {iband=}")
             band_data[iband + 1] += [
                 {
                     "xvals": xvals,
@@ -139,9 +133,7 @@ def get_band_info(dpath: str, verbose: bool = False) -> BandInfo:
     control = chdir_exec(dpath, read_control)
     nelec = structure.get_atomic_numbers().sum() + float(control["charge"])
     if not abs(nelec % 1) < 1e-6:
-        log(
-            f"WARNING: non-integer number of electrons: {nelec}, charge: {control['charge']}"
-        )
+        log(f"WARNING: non-integer number of electrons: {nelec}, charge: {control['charge']}")
     nelec = int(round(nelec))
 
     latvec = structure.get_cell()  # lattice vectors
@@ -154,11 +146,7 @@ def get_band_info(dpath: str, verbose: bool = False) -> BandInfo:
     max_spin_channel = 1
     if "spin" in control and control["spin"] == "collinear":
         max_spin_channel = 2
-    if (
-        "calculate_perturbative_soc" in control
-        or "include_spin_orbit" in control
-        or "include_spin_orbit_sc" in control
-    ):
+    if "calculate_perturbative_soc" in control or "include_spin_orbit" in control or "include_spin_orbit_sc" in control:
         max_spin_channel = 1
 
     """read band basic info from control file"""
@@ -208,12 +196,8 @@ def concat_band_data(band_info: BandInfo) -> List[BandData]:
     return a list of band data, one for each spin channel
     """
     # consistency check
-    all_seg_spin_channels = [
-        len(band_datas) for band_datas in band_info["band_data"].values()
-    ]
-    assert all(
-        [band_info["max_spin_channel"] == i for i in all_seg_spin_channels]
-    ), ValueError(
+    all_seg_spin_channels = [len(band_datas) for band_datas in band_info["band_data"].values()]
+    assert all([band_info["max_spin_channel"] == i for i in all_seg_spin_channels]), ValueError(
         f"inconsistent number of spin channels, \
         need {band_info['max_spin_channel']}, got {all_seg_spin_channels}"
     )
@@ -232,12 +216,8 @@ def concat_band_data(band_info: BandInfo) -> List[BandData]:
                 band_data_cat[k].append(band_info["band_data"][seg_idx][spin][k])
         # concate or check consistency
         band_data_cat["xvals"] = numpy.concatenate(band_data_cat["xvals"])
-        band_data_cat["band_energies"] = numpy.concatenate(
-            band_data_cat["band_energies"], axis=0
-        )
-        band_data_cat["band_occupations"] = numpy.concatenate(
-            band_data_cat["band_occupations"], axis=0
-        )
+        band_data_cat["band_energies"] = numpy.concatenate(band_data_cat["band_energies"], axis=0)
+        band_data_cat["band_occupations"] = numpy.concatenate(band_data_cat["band_occupations"], axis=0)
         assert len(numpy.unique(band_data_cat["color"])) == 1, ValueError(
             f"inconsistent colors: {band_data_cat['color']}"
         )
@@ -270,6 +250,49 @@ def find_fullfill_valance_band_idx(band_occupations: numpy.ndarray, nelec: int) 
         raise ValueError(f"invalid number of electrons {nelec}")
 
 
+def cal_band_width(
+    dpath: str,
+    band_indexes: Union[int, list[int]],
+    verbose: bool = False,
+):
+    """This is used for getting band width along the kpath.
+    Still, band_index=0 means valence band top, determined by the number of electrons.
+    It is important to identify first if the gap exists."""
+
+    if verbose:
+        log = print
+    else:
+        log = lambda *args, **kwargs: None
+    assert os.path.exists(dpath)
+
+    if isinstance(band_indexes, int):
+        band_indexes = [band_indexes]
+    assert isinstance(band_indexes, list) and all([isinstance(i, int) for i in band_indexes]), ValueError(
+        f"invalid band_indexes: {band_indexes}"
+    )
+    log(f"around fermi surface, band_indexes: {band_indexes}")
+
+    log("reading bands")
+    band_info = get_band_info(dpath, verbose)
+    log("concatenating band data")
+    band_data_full = concat_band_data(band_info)
+    assert len(band_data_full) == 1, ValueError(f"invalid number of spin channels: {len(band_data_full)}")
+    band_data_full = band_data_full[0]
+
+    fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+    band_indexes_all_elec = [i + fullfill_idx for i in band_indexes]
+    log(f"all the electrons: {band_indexes_all_elec=}")
+    band_energies = band_data_full["band_energies"][:, band_indexes_all_elec]
+    band_energies_min = numpy.min(band_energies, axis=0)
+    band_energies_max = numpy.max(band_energies, axis=0)
+    band_width = band_energies_max - band_energies_min
+    return {
+        "band_indexes": band_indexes,
+        "band_indexes_all_elec": band_indexes_all_elec,
+        "band_width": band_width,
+    }
+
+
 def cal_band_gap(
     dpath: str,
     verbose: bool = False,
@@ -286,18 +309,13 @@ def cal_band_gap(
 
     log("concatenating band data")
     band_data_full = concat_band_data(band_info)
-    assert len(band_data_full) == 1, ValueError(
-        f"invalid number of spin channels: {len(band_data_full)}"
-    )
+    assert len(band_data_full) == 1, ValueError(f"invalid number of spin channels: {len(band_data_full)}")
     band_data_full = band_data_full[0]
 
-    fullfill_idx = find_fullfill_valance_band_idx(
-        band_data_full["band_occupations"], band_info["nelec"]
-    )
+    fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
     val_max = numpy.max(band_data_full["band_energies"][:, fullfill_idx])
     cond_min = numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
     return cond_min - val_max
-
 
 
 def cal_bands_diff(
@@ -337,15 +355,10 @@ def cal_bands_diff(
 
     log("sanity check of bands")
     nelec_list = [band_info["nelec"] for band_info in band_info_list]
-    assert len(set(nelec_list)) == 1, ValueError(
-        f"inconsistent number of electrons: {nelec_list}"
-    )
+    assert len(set(nelec_list)) == 1, ValueError(f"inconsistent number of electrons: {nelec_list}")
 
     log("check band data consistency")
-    for bs1, bs2 in zip(
-        band_info_list[0]["band_segments"], band_info_list[1]["band_segments"],
-        strict=True
-    ):
+    for bs1, bs2 in zip(band_info_list[0]["band_segments"], band_info_list[1]["band_segments"], strict=True):
         assert numpy.allclose(bs1[0], bs2[0]), ValueError(f"inconsistent start: {bs1} != {bs2}")
         assert numpy.allclose(bs1[1], bs2[1]), ValueError(f"inconsistent end: {bs1} != {bs2}")
         assert numpy.allclose(bs1[2], bs2[2]), ValueError(f"inconsistent length: {bs1} != {bs2}")
@@ -355,11 +368,12 @@ def cal_bands_diff(
         segment_indexes = sorted(band_info_list[0]["band_data"].keys())
         log(f"using full kpaths {segment_indexes=}")
     else:
-        assert isinstance(segment_indexes, list) and all(
-            [isinstance(i, int) for i in segment_indexes]
-        ), ValueError(f"invalid segment_indexes: {segment_indexes}")
-        assert all([i > 0 for i in segment_indexes]), \
-            ValueError(f"segment_indexes start from 1, but got {segment_indexes}")
+        assert isinstance(segment_indexes, list) and all([isinstance(i, int) for i in segment_indexes]), ValueError(
+            f"invalid segment_indexes: {segment_indexes}"
+        )
+        assert all([i > 0 for i in segment_indexes]), ValueError(
+            f"segment_indexes start from 1, but got {segment_indexes}"
+        )
         log(f"using part of kpaths {segment_indexes=}")
         # for band_info in band_info_list:
         #     band_info["labels"] = None  # not meaningful
@@ -378,13 +392,11 @@ def cal_bands_diff(
     )
     if bands_indexes is None:
         """for all bands"""
-        selected_bands_indexes = numpy.arange(
-            band_info_list[0]["band_data"][1][0]["band_energies"].shape[1]
-        )
+        selected_bands_indexes = numpy.arange(band_info_list[0]["band_data"][1][0]["band_energies"].shape[1])
     else:
-        assert isinstance(bands_indexes, list) and all(
-            [isinstance(i, int) for i in bands_indexes]
-        ), ValueError(f"invalid bands_indexes: {bands_indexes}")
+        assert isinstance(bands_indexes, list) and all([isinstance(i, int) for i in bands_indexes]), ValueError(
+            f"invalid bands_indexes: {bands_indexes}"
+        )
         """get valence band top index"""
         selected_bands_indexes = list(numpy.array(bands_indexes) + fullfill_idx)
     log(f"{bands_indexes=} -> {selected_bands_indexes=}")
@@ -392,9 +404,7 @@ def cal_bands_diff(
     """calculate shift values"""
     band_data_full_list = [concat_band_data(band_info) for band_info in band_info_list]
     shift = [0.0, 0.0]  # add to band energies
-    for band_data_idx, (band_info, band_data_full) in enumerate(
-        zip(band_info_list, band_data_full_list)
-    ):
+    for band_data_idx, (band_info, band_data_full) in enumerate(zip(band_info_list, band_data_full_list)):
         """special for restricted case"""
         assert band_info["max_spin_channel"] == 1
         assert len(band_data_full) == 1
@@ -433,11 +443,19 @@ def cal_bands_diff(
         {
             "kpath_length": band_info_list[0]["band_segments"][si - 1][2],
             "kpath_npoints": band_info_list[0]["band_segments"][si - 1][3],
-            "band_diff": numpy.sum(numpy.abs(
-                band_info_list[0]["band_data"][si][0]["band_energies"][:, selected_bands_indexes] + shift[0]
-                - band_info_list[1]["band_data"][si][0]["band_energies"][:, selected_bands_indexes] - shift[1]
-            ) ** exponent, axis=0) ** (1 / exponent),  # shape=(n_bands,)
-        } for si in segment_indexes
+            "band_diff": numpy.sum(
+                numpy.abs(
+                    band_info_list[0]["band_data"][si][0]["band_energies"][:, selected_bands_indexes]
+                    + shift[0]
+                    - band_info_list[1]["band_data"][si][0]["band_energies"][:, selected_bands_indexes]
+                    - shift[1]
+                )
+                ** exponent,
+                axis=0,
+            )
+            ** (1 / exponent),  # shape=(n_bands,)
+        }
+        for si in segment_indexes
     ]
     if normalize is None:
         return numpy.sum([bd["band_diff"] for bd in band_diff], axis=0)
@@ -459,7 +477,7 @@ def plot_bands(
     shift_method: Union[None, str] = "align_valence_top",
     emin: float = None,
     emax: float = None,
-    legend_loc = "best",
+    legend_loc="best",
     ax=None,
     verbose: bool = False,
 ):
@@ -534,13 +552,9 @@ def plot_bands(
         "valence_top_conduct_bottom_mid",
     ]
     if emin is None:
-        assert emax is None, ValueError(
-            "emin and emax must be both specified float or both None"
-        )
+        assert emax is None, ValueError("emin and emax must be both specified float or both None")
     elif isinstance(emin, float):
-        assert isinstance(emax, float), ValueError(
-            "emin and emax must be both specified float or both None"
-        )
+        assert isinstance(emax, float), ValueError("emin and emax must be both specified float or both None")
         assert emin < emax, ValueError(f"invalid emin/emax: {emin}/{emax}")
     else:
         raise ValueError(f"invalid type for emin: {type(emin)}")
@@ -550,9 +564,7 @@ def plot_bands(
 
     log("sanity check of bands")
     nelec_list = [band_info["nelec"] for band_info in band_info_list]
-    assert len(set(nelec_list)) == 1, ValueError(
-        f"inconsistent number of electrons: {nelec_list}"
-    )
+    assert len(set(nelec_list)) == 1, ValueError(f"inconsistent number of electrons: {nelec_list}")
 
     if first_nkpaths is not None:
         log(f"select kpaths {first_nkpaths=}")
@@ -567,9 +579,7 @@ def plot_bands(
                     f"using default",
                 )
             try:
-                band_info["band_data"] = {
-                    i: band_info["band_data"][i] for i in range(1, first_nkpaths + 1)
-                }
+                band_info["band_data"] = {i: band_info["band_data"][i] for i in range(1, first_nkpaths + 1)}
             except:  # NOQA
                 log(
                     f"{idx=}, number of band segments {len(band_info['band_data'])} is less than {first_nkpaths=},"
@@ -582,18 +592,14 @@ def plot_bands(
                     f"{idx=}, number of band segments {len(band_info['band_segments'])} is less than {first_nkpaths=},"
                     f"using default"
                 )
-            band_info["band_totlength"] = sum(
-                [seg[2] for seg in band_info["band_segments"]]
-            )
+            band_info["band_totlength"] = sum([seg[2] for seg in band_info["band_segments"]])
 
     log("concatenating band data")
     band_data_full_list = [concat_band_data(band_info) for band_info in band_info_list]
 
     """plot bands"""
     bands_cnt_list = [0 for _ in range(len(dpaths))]  # for legend
-    for band_data_idx, (band_info, band_data_full) in enumerate(
-        zip(band_info_list, band_data_full_list)
-    ):
+    for band_data_idx, (band_info, band_data_full) in enumerate(zip(band_info_list, band_data_full_list)):
         """special for restricted case"""
         assert band_info["max_spin_channel"] == 1
         assert len(band_data_full) == 1
@@ -604,24 +610,18 @@ def plot_bands(
         elif shift_method == "align_valence_top":
             """find the valence top"""
             log(f"{band_data_idx=}, finding valence top, for RESTRICTED case only!")
-            fullfill_idx = find_fullfill_valance_band_idx(
-                band_data_full["band_occupations"], band_info["nelec"]
-            )
+            fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
             shift = -numpy.max(band_data_full["band_energies"][:, fullfill_idx])
             log(f"{shift=}")
         elif shift_method == "align_conduct_bottom":
             """find the conduct bottom"""
             log(f"{band_data_idx=}, finding conduct bottom, for RESTRICTED case only!")
-            fullfill_idx = find_fullfill_valance_band_idx(
-                band_data_full["band_occupations"], band_info["nelec"]
-            )
+            fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
             shift = -numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
         elif shift_method == "fullfill_valence_gamma":
             """find the valence gamma value"""
             log(f"{band_data_idx=}, finding valence gamma, for RESTRICTED case only!")
-            fullfill_idx = find_fullfill_valance_band_idx(
-                band_data_full["band_occupations"], band_info["nelec"]
-            )
+            fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
             # find the gamma point index
             cnt_points = 0
             for _, _, _, npoint, startname, endname in band_info["band_segments"]:
@@ -634,9 +634,7 @@ def plot_bands(
         elif shift_method == "valence_top_conduct_bottom_mid":
             """find the valence top"""
             log(f"{band_data_idx=}, finding valence max and conduct min")
-            fullfill_idx = find_fullfill_valance_band_idx(
-                band_data_full["band_occupations"], band_info["nelec"]
-            )
+            fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
             val_max = numpy.max(band_data_full["band_energies"][:, fullfill_idx])
             cond_min = numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
             shift = -0.5 * (val_max + cond_min)
@@ -645,9 +643,7 @@ def plot_bands(
 
         """plot bands"""
         log("plotting bands")
-        log(
-            f"""{band_data_full["band_energies"].shape=}, {band_data_full["band_occupations"].shape=}"""
-        )
+        log(f"""{band_data_full["band_energies"].shape=}, {band_data_full["band_occupations"].shape=}""")
         band_energies = band_data_full["band_energies"] + shift
         if emin is not None:
             band_energies = band_energies[:, numpy.any(band_energies > emin, axis=0)]
@@ -664,11 +660,7 @@ def plot_bands(
             band_energies,
             color=colors[band_data_idx],
             label=labels[band_data_idx],
-            **(
-                plt_kwargs
-                if isinstance(plt_kwargs, dict)
-                else plt_kwargs[band_data_idx]
-            ),
+            **(plt_kwargs if isinstance(plt_kwargs, dict) else plt_kwargs[band_data_idx]),
         )
 
     ax_handles, ax_labels = ax.get_legend_handles_labels()
@@ -684,7 +676,7 @@ def plot_bands(
     ax.legend(
         [handle for i, handle in enumerate(ax_handles) if i in ax_labels_display],
         [label for i, label in enumerate(ax_labels) if i in ax_labels_display],
-        loc = legend_loc
+        loc=legend_loc,
     )
 
     """plot ticks"""
@@ -705,8 +697,7 @@ def plot_bands(
     return ax
 
 
-
-def get_aims_kpaths(lattice:str, path_symbols:str, kpts_spacing:float=0.01):
+def get_aims_kpaths(lattice: str, path_symbols: str, kpts_spacing: float = 0.01):
     """
     Generate kpaths for aims
 
@@ -719,14 +710,21 @@ def get_aims_kpaths(lattice:str, path_symbols:str, kpts_spacing:float=0.01):
         List[Tuple[kpos_x, kpos_y, kpos_z, kpos_x, kpos_y, kpos_z, n_points, symbol_start, symbol_end]]
     """
     from ase.dft.kpoints import sc_special_points as special_points
+
     points = special_points[lattice]
     assert all([s in points.keys() for s in path_symbols])
 
     if lattice == "hexagonal":
-        points['H'][:2] = [0.6666666666666667, 0.3333333333333333,]
-        points['K'][:2] = [0.6666666666666667, 0.3333333333333333,]
+        points["H"][:2] = [
+            0.6666666666666667,
+            0.3333333333333333,
+        ]
+        points["K"][:2] = [
+            0.6666666666666667,
+            0.3333333333333333,
+        ]
 
-    aims_kpaths:List[Tuple[int, int, int, int, int, int, int, str, str]] = []
+    aims_kpaths: List[Tuple[int, int, int, int, int, int, int, str, str]] = []
     kpts_spacing = 0.01
 
     for i in range(len(path_symbols) - 1):
@@ -738,7 +736,8 @@ def get_aims_kpaths(lattice:str, path_symbols:str, kpts_spacing:float=0.01):
 
     return aims_kpaths
 
-def aims_kpaths2str(aims_kpaths:List) -> str:
+
+def aims_kpaths2str(aims_kpaths: List) -> str:
     """
     format: (following aims convention)
     output band k_xstart k_ystart k_zstart k_xend k_yend k_zend n_points symbol_start symbol_end
@@ -749,18 +748,16 @@ def aims_kpaths2str(aims_kpaths:List) -> str:
     ]
     return "\n".join(s)
 
-def gen_aims_kpaths_str(lattice:str, path_symbols:str, kpts_spacing:float=0.01) -> str:
+
+def gen_aims_kpaths_str(lattice: str, path_symbols: str, kpts_spacing: float = 0.01) -> str:
     __doc__ = get_aims_kpaths.__doc__ + aims_kpaths2str.__doc__  # NOQA
 
     aims_kpaths = get_aims_kpaths(lattice, path_symbols, kpts_spacing)
     return aims_kpaths2str(aims_kpaths)
 
 
-
 if __name__ == "__main__":
-    band_info = get_band_info(
-        "/u/zklou/projects/salted/ZrS2/240118/optim_baseline/aims_predicted_data/1"
-    )
+    band_info = get_band_info("/u/zklou/projects/salted/ZrS2/240118/optim_baseline/aims_predicted_data/1")
     # band_info = get_band_info("/u/zklou/projects/salted/ZrS2/cal_aims/ZrS2_pred_inter/1")
     band_data_full = concat_band_data(band_info)
     band_info, band_data_full
