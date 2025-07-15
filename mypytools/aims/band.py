@@ -467,7 +467,7 @@ def cal_bands_diff(
         raise ValueError(f"invalid normalize: {normalize}")
 
 
-def plot_bands(
+def plot_bands_v1(
     dpaths: List[str],
     labels: List[str] = None,
     colors: List[str] = None,
@@ -695,6 +695,241 @@ def plot_bands(
     ax.axhline(0, color="r", linestyle=":")
 
     return ax
+
+plot_bands = plot_bands_v1
+
+
+def plot_bands_v2(
+    dpaths: List[str],
+    labels: List[str] = None,
+    colors: List[str] = None,
+    linestyles: List[str] = None,
+    plt_kwargs: Union[Dict, List[Dict]] = None,
+    first_nkpaths: int = None,
+    shift_method: Union[None, str] = "align_valence_top",
+    emin: float = None,
+    emax: float = None,
+    legend_loc="best",
+    ax=None,
+    verbose: bool = False,
+):
+    """
+    Plot bands from multiple directories
+    WARNING: for RESTRICTED case only!
+
+    Args:
+        dpaths (List[str]): The list of directories containing the band data.
+        labels (List[str], optional): The labels for each directory. Defaults to None.
+        colors (List[str], optional): The colors for each directory. Defaults to None.
+        linestyles (List[str], optional): The linestyles for each directory. Defaults to None.
+        plt_kwargs (Union[Dict, List[Dict]], optional): Additional keyword arguments for the plot function. \
+            Can be a single dictionary or a list of dictionaries. Defaults to None.
+        first_nkpaths (int, optional): The number of k-paths to plot. Defaults to None.
+        shift_method (Union[None, str], optional): The method to shift the bands. Defaults to "align_valence_top".
+        emin (float, optional): The minimum energy value to plot. Defaults to None.
+        emax (float, optional): The maximum energy value to plot. Defaults to None.
+        ax (optional): The matplotlib axes object to plot on. Defaults to None.
+        verbose (bool, optional): Whether to print verbose output. Defaults to False.
+
+    Returns:
+        matplotlib.axes.Axes: The axes object used for plotting.
+    """
+    if verbose:
+        log = print
+    else:
+        log = lambda *args, **kwargs: None  # NOQA
+
+    """sanity check"""
+    for d in dpaths:
+        assert os.path.isdir(d), f"{d} is not a directory"
+    log(f"plotting bands from {len(dpaths)} directories")
+
+    """assign default values"""
+    if ax is None:
+        ax = plt.gca()
+    if labels is None:
+        labels = tuple(range(len(dpaths)))
+    else:
+        assert len(labels) == len(dpaths)
+    if colors is None:
+        colors = [f"C{i}" for i in range(len(dpaths))]
+    else:
+        assert len(colors) == len(dpaths)
+    if linestyles is None:
+        linestyles = (
+            [
+                "solid",
+                "dashed",
+                "dashdot",
+                "dotted",
+            ]
+            * 2
+        )[: len(dpaths)]
+    else:
+        assert len(linestyles) == len(dpaths)
+    if plt_kwargs is None:
+        plt_kwargs = dict()
+    else:
+        if isinstance(plt_kwargs, dict):
+            pass
+        elif isinstance(plt_kwargs, list):
+            assert len(plt_kwargs) == len(dpaths)
+        else:
+            raise ValueError(f"invalid type for kwarg plt_kwargs: {type(plt_kwargs)}")
+    assert shift_method in [
+        None,
+        "align_valence_top",
+        "align_conduct_bottom",
+        "fullfill_valence_gamma",
+        "valence_top_conduct_bottom_mid",
+    ]
+    if emin is None:
+        assert emax is None, ValueError("emin and emax must be both specified float or both None")
+    elif isinstance(emin, float):
+        assert isinstance(emax, float), ValueError("emin and emax must be both specified float or both None")
+        assert emin < emax, ValueError(f"invalid emin/emax: {emin}/{emax}")
+    else:
+        raise ValueError(f"invalid type for emin: {type(emin)}")
+
+    log("reading bands")
+    band_info_list = [get_band_info(d, verbose) for d in dpaths]
+
+    log("sanity check of bands")
+    nelec_list = [band_info["nelec"] for band_info in band_info_list]
+    assert len(set(nelec_list)) == 1, ValueError(f"inconsistent number of electrons: {nelec_list}")
+
+    if first_nkpaths is not None:
+        log(f"select kpaths {first_nkpaths=}")
+        assert (first_nkpaths >= 1) and (isinstance(first_nkpaths, int))
+        """filter labels, band_data, band_segments"""
+        for idx, band_info in enumerate(band_info_list):
+            try:
+                band_info["labels"] = band_info["labels"][: first_nkpaths + 1]
+            except:  # NOQA
+                log(
+                    f"{idx=}, number of labels {len(band_info['labels'])} is less than {first_nkpaths+1=},",
+                    f"using default",
+                )
+            try:
+                band_info["band_data"] = {i: band_info["band_data"][i] for i in range(1, first_nkpaths + 1)}
+            except:  # NOQA
+                log(
+                    f"{idx=}, number of band segments {len(band_info['band_data'])} is less than {first_nkpaths=},"
+                    f"using default"
+                )
+            try:
+                band_info["band_segments"] = band_info["band_segments"][:first_nkpaths]
+            except:  # NOQA
+                log(
+                    f"{idx=}, number of band segments {len(band_info['band_segments'])} is less than {first_nkpaths=},"
+                    f"using default"
+                )
+            band_info["band_totlength"] = sum([seg[2] for seg in band_info["band_segments"]])
+
+    log("concatenating band data")
+    band_data_full_list = [concat_band_data(band_info) for band_info in band_info_list]
+
+    """plot bands"""
+    bands_cnt_list = [0 for _ in range(len(dpaths))]  # for legend
+    for band_data_idx, (band_info, band_data_full) in enumerate(zip(band_info_list, band_data_full_list)):
+        """special for restricted case"""
+        assert band_info["max_spin_channel"] == 1
+        assert len(band_data_full) == 1
+        band_data_full = band_data_full[0]
+
+        if shift_method is None:
+            shift = 0.0
+        elif shift_method == "align_valence_top":
+            """find the valence top"""
+            log(f"{band_data_idx=}, finding valence top, for RESTRICTED case only!")
+            fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+            shift = -numpy.max(band_data_full["band_energies"][:, fullfill_idx])
+            log(f"{shift=}")
+        elif shift_method == "align_conduct_bottom":
+            """find the conduct bottom"""
+            log(f"{band_data_idx=}, finding conduct bottom, for RESTRICTED case only!")
+            fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+            shift = -numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
+        elif shift_method == "fullfill_valence_gamma":
+            """find the valence gamma value"""
+            log(f"{band_data_idx=}, finding valence gamma, for RESTRICTED case only!")
+            fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+            # find the gamma point index
+            cnt_points = 0
+            for _, _, _, npoint, startname, endname in band_info["band_segments"]:
+                if startname.lower() in ("gamma", "g"):
+                    break
+                cnt_points += npoint
+                if endname.lower() in ("gamma", "g"):
+                    break
+            shift = -band_data_full["band_energies"][cnt_points - 1, fullfill_idx]
+        elif shift_method == "valence_top_conduct_bottom_mid":
+            """find the valence top"""
+            log(f"{band_data_idx=}, finding valence max and conduct min")
+            fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+            val_max = numpy.max(band_data_full["band_energies"][:, fullfill_idx])
+            cond_min = numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
+            shift = -0.5 * (val_max + cond_min)
+        else:
+            raise ValueError(f"invalid shift_method: {shift_method}")
+
+        """plot bands"""
+        log("plotting bands")
+        log(f"""{band_data_full["band_energies"].shape=}, {band_data_full["band_occupations"].shape=}""")
+        band_energies = band_data_full["band_energies"] + shift
+        if emin is not None:
+            band_energies = band_energies[:, numpy.any(band_energies > emin, axis=0)]
+        if emax is not None:
+            band_energies = band_energies[:, numpy.any(band_energies < emax, axis=0)]
+        log(f"after filtering, {band_energies.shape=} ~ (n_kpoints, n_bands)")
+        bands_cnt_list[band_data_idx] += band_energies.shape[1]
+        if isinstance(plt_kwargs, dict):
+            plt_kwargs["linestyle"] = linestyles[band_data_idx]
+        elif isinstance(plt_kwargs, list):
+            plt_kwargs[band_data_idx].setdefault("linestyle", linestyles[band_data_idx])
+        ax.plot(
+            band_data_full["xvals"],
+            band_energies,
+            color=colors[band_data_idx],
+            label=labels[band_data_idx],
+            **(plt_kwargs if isinstance(plt_kwargs, dict) else plt_kwargs[band_data_idx]),
+        )
+
+    ax_handles, ax_labels = ax.get_legend_handles_labels()
+    ax_labels_display = [sum(bands_cnt_list[:i]) for i in range(len(bands_cnt_list))]
+    log(f"{ax_labels_display=}")
+    if emin is None and emax is None:
+        log("emin/emax not specified, using default")
+    else:
+        assert isinstance(emin, float) and isinstance(emax, float)
+        log(f"setting emin/emax to {emin}/{emax}")
+        ax.set_ylim(emin, emax)
+    # ax.legend(labels, loc=legend_loc)
+    ax.legend(
+        [handle for i, handle in enumerate(ax_handles) if i in ax_labels_display],
+        [label for i, label in enumerate(ax_labels) if i in ax_labels_display],
+        loc=legend_loc,
+    )
+
+    """plot ticks"""
+    log("plotting ticks and h/v lines")
+    tickx, tickl = [], []
+    labels = band_info_list[0]["labels"]
+    log(labels)
+    for xpos, label_str in labels:
+        ax.axvline(xpos, color="k", linestyle=":")
+        tickx += [xpos]
+        if label_str == "Gamma" or label_str == "G":
+            label_str = "$\\Gamma$"
+        tickl += [label_str]
+    ax.set_xticks(tickx, tickl)
+    ax.set_xlim(labels[0][0], labels[first_nkpaths][0])
+    ax.axhline(0, color="r", linestyle=":")
+
+    return {
+        "ax": ax,
+        "kpt_labels": band_info_list[0]["labels"],
+    }
 
 
 def get_aims_kpaths(lattice: str, path_symbols: str, kpts_spacing: float = 0.01):
