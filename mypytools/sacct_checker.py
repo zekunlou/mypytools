@@ -15,10 +15,10 @@ import re
 import subprocess
 import sys
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Optional
 
 
-def parse_job_ids(filepath: str) -> List[str]:
+def parse_job_ids(filepath: str) -> list[str]:
     """
     Parse SLURM job IDs from a log file using regex.
 
@@ -26,7 +26,7 @@ def parse_job_ids(filepath: str) -> List[str]:
         filepath: Path to the log file containing SLURM job submissions
 
     Returns:
-        List of job IDs found in the file
+        list of job IDs found in the file
 
     Raises:
         FileNotFoundError: If the file doesn't exist
@@ -38,7 +38,7 @@ def parse_job_ids(filepath: str) -> List[str]:
     pattern = r"Submitted batch job (\d+)"
 
     try:
-        with open(filepath, "r") as file:
+        with open(filepath) as file:
             content = file.read()
             matches = re.findall(pattern, content)
             job_ids.extend(matches)
@@ -49,7 +49,7 @@ def parse_job_ids(filepath: str) -> List[str]:
         else:
             print(f"Error: File '{filepath}' not found.")
         sys.exit(1)
-    except IOError as e:
+    except OSError as e:
         print(f"Error reading file '{filepath}': {e}")
         sys.exit(1)
 
@@ -91,12 +91,12 @@ def calculate_duration(start_time: str, end_time: str) -> str:
         return "Unknown"
 
 
-def get_available_fields() -> Dict[str, str]:
+def get_available_fields() -> dict[str, str]:
     """
     Get available sacct format fields with descriptions.
 
     Returns:
-        Dictionary mapping field names to descriptions
+        dictionary mapping field names to descriptions
     """
     fields = {
         # Job identification
@@ -156,12 +156,12 @@ def get_available_fields() -> Dict[str, str]:
     return fields
 
 
-def get_field_presets() -> Dict[str, List[str]]:
+def get_field_presets() -> dict[str, list[str]]:
     """
     Get predefined format field presets for common use cases.
 
     Returns:
-        Dictionary mapping preset names to field lists
+        dictionary mapping preset names to field lists
     """
     presets = {
         "basic": ["jobid", "jobname", "state", "elapsed", "exitcode"],
@@ -198,7 +198,7 @@ def get_field_presets() -> Dict[str, List[str]]:
     return presets
 
 
-def parse_format_fields(format_arg: str) -> List[str]:
+def parse_format_fields(format_arg: str) -> list[str]:
     """
     Parse format field argument into a list of fields.
 
@@ -206,7 +206,7 @@ def parse_format_fields(format_arg: str) -> List[str]:
         format_arg: Comma-separated list of fields or preset name
 
     Returns:
-        List of format field names
+        list of format field names
     """
     presets = get_field_presets()
 
@@ -250,8 +250,8 @@ def list_available_options():
 
 
 def get_job_status(
-    job_ids: List[str],
-    format_fields: List[str],
+    job_ids: list[str],
+    format_fields: list[str],
     show_allocations: bool = False,
     job_state_filter: Optional[str] = None,
     add_duration: bool = False,
@@ -261,8 +261,8 @@ def get_job_status(
     Get job status information using sacct command.
 
     Args:
-        job_ids: List of job IDs to query
-        format_fields: List of format fields to display
+        job_ids: list of job IDs to query
+        format_fields: list of format fields to display
         show_allocations: Whether to show allocation steps (like -X flag in sacct)
         job_state_filter: Filter jobs by state (e.g., 'COMPLETED', 'FAILED', 'RUNNING')
         add_duration: Whether to calculate and add duration time
@@ -461,7 +461,7 @@ Examples:
     parser.add_argument("--job-ids", action="store_true", help="Only print the parsed job IDs (useful for debugging)")
 
     parser.add_argument(
-        "--list-fields", action="store_true", help="List available format fields and presets, then exit"
+        "--list-fields", action="store_true", help="list available format fields and presets, then exit"
     )
 
     args = parser.parse_args()
@@ -481,7 +481,7 @@ Examples:
             print(f"Warning: Default file '{args.logfile}' does not exist in current directory.")
             print("Please ensure the file exists or specify a different log file.")
 
-            # List .log files in current directory as suggestions
+            # list .log files in current directory as suggestions
             log_files = [f for f in os.listdir(".") if f.endswith(".log")]
             if log_files:
                 print(f"Found these .log files in current directory: {', '.join(log_files)}")

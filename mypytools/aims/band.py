@@ -696,6 +696,7 @@ def plot_bands_v1(
 
     return ax
 
+
 plot_bands = plot_bands_v1
 
 
@@ -923,12 +924,186 @@ def plot_bands_v2(
             label_str = "$\\Gamma$"
         tickl += [label_str]
     ax.set_xticks(tickx, tickl)
+    if first_nkpaths is None:
+        first_nkpaths = len(labels) - 1
+    # print(labels, first_nkpaths)  # for debug
     ax.set_xlim(labels[0][0], labels[first_nkpaths][0])
     ax.axhline(0, color="r", linestyle=":")
 
     return {
         "ax": ax,
         "kpt_labels": band_info_list[0]["labels"],
+    }
+
+
+def plot_bands_highlight(
+    dpath: str,
+    bands_indices: list[int],
+    emax: Optional[float] = None,
+    emin: Optional[float] = None,
+    plt_kwargs_bands: dict = None,  # for background bands
+    plt_kwargs_highlight: dict = None,  # for highlighted bands
+    shift_method: str = "align_valence_top",
+    segment_indices: Optional[list[int]] = None,
+    ax=None,
+    verbose: bool = False,
+):
+    """Plot one band structure with some bands highlighted.
+
+    Args:
+        dpath (str): Directory path to AIMS calculation directory.
+        bands_indices (list[int]): List of band indices to highlight. 0 for valence top,
+            <0 for valence bands, >0 for conduction bands.
+        emax (Optional[float], optional): Maximum energy value to plot. Defaults to None.
+        emin (Optional[float], optional): Minimum energy value to plot. Defaults to None.
+        plt_kwargs_bands (dict, optional): Plot settings for background non-highlighted bands.
+            Defaults to None.
+        plt_kwargs_highlight (dict, optional): Plot settings for highlighted bands.
+            Defaults to None.
+        shift_method (str, optional): Method to shift the bands. Options: None,
+            "align_valence_top", "align_conduct_bottom", "fullfill_valence_gamma",
+            "valence_top_conduct_bottom_mid". Defaults to "align_valence_top".
+        segment_indices (Optional[list[int]], optional): List of k-path segment indices to plot
+            (starting from 1). Defaults to None (all segments).
+        ax (optional): Matplotlib axes object to plot on. Defaults to None.
+        verbose (bool, optional): Whether to print verbose output. Defaults to False.
+
+    Returns:
+        dict: Dictionary containing "ax" (axes object), "kpt_labels" (k-point labels),
+            and "shift" (energy shift applied).
+    """
+
+    log = print if verbose else lambda *args, **kwargs: None
+
+    """sanity check"""
+    assert os.path.isdir(dpath), f"{dpath} is not a directory"
+    log(f"plotting bands from {dpath}")
+
+    """assign default values"""
+    if ax is None:
+        ax = plt.gca()
+    if plt_kwargs_bands is None:
+        plt_kwargs_bands = {"color": "gray", "alpha": 0.3, "linewidth": 0.5}
+    if plt_kwargs_highlight is None:
+        plt_kwargs_highlight = {"color": "red", "alpha": 1.0, "linewidth": 1.0}
+
+    log("reading bands")
+    band_info = get_band_info(dpath, verbose)
+    log(f"number of electrons: {band_info['nelec']}")
+
+    """sanity check"""
+    assert band_info["max_spin_channel"] == 1, "Only restricted case supported"
+
+    if segment_indices is not None:
+        log(f"select kpaths {segment_indices=}")
+        assert isinstance(segment_indices, list) and all([isinstance(i, int) for i in segment_indices])
+        assert all([i > 0 for i in segment_indices]), "segment_indices start from 1"
+        # Filter band data to selected segments
+        band_info["band_data"] = {i: band_info["band_data"][i] for i in segment_indices if i in band_info["band_data"]}
+        band_info["band_segments"] = [
+            band_info["band_segments"][i - 1] for i in segment_indices if i <= len(band_info["band_segments"])
+        ]
+        band_info["band_totlength"] = sum([seg[2] for seg in band_info["band_segments"]])
+
+    log("concatenating band data")
+    band_data_full = concat_band_data(band_info)
+    assert len(band_data_full) == 1
+    band_data_full = band_data_full[0]
+
+    """calculate shift"""
+    if shift_method is None:
+        shift = 0.0
+    elif shift_method == "align_valence_top":
+        log("finding valence top")
+        fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+        shift = -numpy.max(band_data_full["band_energies"][:, fullfill_idx])
+    elif shift_method == "align_conduct_bottom":
+        log("finding conduct bottom")
+        fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+        shift = -numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
+    elif shift_method == "fullfill_valence_gamma":
+        log("finding valence gamma")
+        fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+        cnt_points = 0
+        for _, _, _, npoint, startname, endname in band_info["band_segments"]:
+            if startname.lower() in ("gamma", "g"):
+                break
+            cnt_points += npoint
+            if endname.lower() in ("gamma", "g"):
+                break
+        shift = -band_data_full["band_energies"][cnt_points - 1, fullfill_idx]
+    elif shift_method == "valence_top_conduct_bottom_mid":
+        log("finding valence max and conduct min")
+        fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+        val_max = numpy.max(band_data_full["band_energies"][:, fullfill_idx])
+        cond_min = numpy.min(band_data_full["band_energies"][:, fullfill_idx + 1])
+        shift = -0.5 * (val_max + cond_min)
+    else:
+        raise ValueError(f"invalid shift_method: {shift_method}")
+
+    log(f"shift: {shift}")
+
+    """plot bands"""
+    band_energies = band_data_full["band_energies"] + shift
+
+    # Get highlight band indices relative to valence top
+    fullfill_idx = find_fullfill_valance_band_idx(band_data_full["band_occupations"], band_info["nelec"])
+    log(f"{fullfill_idx=}")
+    highlight_band_indices = [idx + fullfill_idx for idx in bands_indices]
+    log(f"highlighting bands at indices: {highlight_band_indices}")
+
+    # Calculate which bands are in the specified energy range
+    band_indices_in_e_range = None
+    if emin is not None:
+        band_indices_in_e_range = numpy.any(band_energies > emin, axis=0)
+    if emax is not None:
+        band_indices_in_e_range = numpy.logical_and(band_indices_in_e_range, numpy.any(band_energies < emax, axis=0))
+    if band_indices_in_e_range is None:  # if none of emin or emax is specified
+        band_indices_in_e_range = numpy.ones(band_energies.shape[1], dtype=bool)
+    # should be in band_indices_in_e_range but not be in highlight_band_indices
+    band_indices_is_background = numpy.logical_and(
+        band_indices_in_e_range,
+        numpy.logical_not(numpy.isin(numpy.arange(band_energies.shape[1]), highlight_band_indices)),
+    )
+
+    log(f"band_energies shape: {band_energies.shape}")
+
+    # Plot background bands
+    ax.plot(band_data_full["xvals"], band_energies[:, band_indices_is_background], **plt_kwargs_bands)
+
+    # Plot highlighted bands
+    ax.plot(
+        band_data_full["xvals"],
+        band_energies[:, highlight_band_indices],
+        **plt_kwargs_highlight,
+    )
+
+    """plot ticks and reference lines"""
+    log("plotting ticks and h/v lines")
+    tickx, tickl = [], []
+    labels = band_info["labels"]
+    for xpos, label_str in labels:
+        ax.axvline(xpos, color="k", linestyle=":", alpha=0.5)
+        tickx.append(xpos)
+        if label_str.lower() in ("gamma", "g"):
+            label_str = "$\\Gamma$"
+        tickl.append(label_str)
+
+    ax.set_xticks(tickx, tickl)
+    ax.set_xlim(labels[0][0], labels[-1][0])
+    ax.axhline(0, color="r", linestyle=":", alpha=0.7)
+
+    # Set energy limits
+    if emin is not None and emax is not None:
+        ax.set_ylim(emin, emax)
+
+    ax.set_xlabel("k-path")
+    ax.set_ylabel("Energy (eV)")
+
+    return {
+        "ax": ax,
+        "kpt_labels": band_info["labels"],
+        "shift": shift,
     }
 
 
