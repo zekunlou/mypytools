@@ -784,6 +784,16 @@ def plot_bands_v2(
         "fullfill_valence_gamma",
         "valence_top_conduct_bottom_mid",
     ]
+    if emin is not None:
+        try:
+            emin = float(emin)
+        except ValueError:
+            raise ValueError(f"invalid emin: {emin}, must be a float or int")
+    if emax is not None:
+        try:
+            emax = float(emax)
+        except ValueError as err:
+            raise ValueError(f"invalid emax: {emax}, must be a float or int") from err
     if emin is None:
         assert emax is None, ValueError("emin and emax must be both specified float or both None")
     elif isinstance(emin, float):
