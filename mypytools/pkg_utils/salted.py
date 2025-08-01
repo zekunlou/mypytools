@@ -7,7 +7,17 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy
 from ase.io import read
-from salted.sys_utils import ParseConfig
+
+try:
+    from salted.sys_utils import ParseConfig
+except ImportError:
+    from mypytools.pkg_utils import NullClass
+
+    ParseConfig = NullClass(name="ParseConfig", info="please install salted package to use it")
+    print(
+        "salted.sys_utils.ParseConfig not found. It is configured as NullClas. Please install salted package if you want to use it.",
+        file=sys.stderr,
+    )
 
 
 class DescriptorManager:
