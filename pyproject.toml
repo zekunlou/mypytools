@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "A collection of tools for python"
 readme = {file = "README.md", content-type = "text/markdown"}
 urls = {Repository = "https://github.com/zekunlou/mypytools"}
-license = {text = "MIT with citation requirement"}
+license = {text = "MIT"}
 authors = [{name = "Zekun Lou", email = "zekunlou+mypytools@gmail.com"}]
 keywords = ["python", "tools", "mypytools", "personal", "dangerous"]
 requires-python = ">=3.9"
