@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mypytools"
-version = "0.0.1"
+version = "1.0.0"
 description = "A collection of tools for python"
 readme = {file = "README.md", content-type = "text/markdown"}
-urls = {Repository = "https://github.com/nqhq-lou/mypytools"}
-license = {text = "BSD-3-Clause"}
+urls = {Repository = "https://github.com/zekunlou/mypytools"}
+license = {text = "MIT with citation requirement"}
 authors = [{name = "Zekun Lou", email = "zekunlou+mypytools@gmail.com"}]
 keywords = ["python", "tools", "mypytools", "personal", "dangerous"]
 requires-python = ">=3.9"
@@ -17,7 +17,6 @@ dependencies = [
     "matplotlib>=3.8.0",
     "tqdm>=4.45.0",
     "p_tqdm>=1.4.0",
-    "pytest>=7.0.0",
     "tomli>=1.0.0",
     "ase>=3.22.1",
     "nvitop",
@@ -27,6 +26,35 @@ dependencies = [
 geom = [
     "shapely>=2.0.3",
 ]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+]
 
 [project.scripts]
 mpt_hello = "mypytools.hello:say_hello"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=mypytools",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+    "-v"
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "gpu: marks tests that require GPU",
+    "mpi: marks tests that require MPI",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]

@@ -34,7 +34,9 @@ _regexp_dict = {  # energy in eV
     "number_of_atoms": re.compile(r"\|\s*Number of atoms\s*:\s*(\d+)"),
     "electrostatic_energy": re.compile(r"\|\s*Electrostatic energy\s*:\s*-?\d+\.\d+\s*Ha\s*(-?\d+\.\d+)\s*eV"),
     "xc_energy": re.compile(r"\|\s*XC energy correction\s*:\s*-?\d+\.\d+\s*Ha\s*(-?\d+\.\d+)\s*eV"),
-    "total_energy": re.compile(r"\|\s*Electronic free energy\s*:\s*-?\d+\.\d+\s*Ha\s*(-?\d+\.\d+)\s*eV"),
+    "total_energy_per_atom": re.compile(r"\|\s*Electronic free energy per atom\s*:\s*(-?\d+\.\d+)\s*eV"),
+    # "total_energy": re.compile(r"\|\s*Electronic free energy\s*:\s*-?\d+\.\d+\s*Ha\s*(-?\d+\.\d+)\s*eV"),
+    # # it is correct actually, because the total energy per atom doesn't have Hartree value so re matching is correct.
 }
 
 
@@ -61,6 +63,7 @@ def parse_energy_241124(fpath: str):
         else:
             print(f"{key=} not found at {fpath=}")
             results[key] = numpy.nan
+    results["total_energy"] = results["number_of_atoms"] * results["total_energy_per_atom"]
     return results
 
 
