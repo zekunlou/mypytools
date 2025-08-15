@@ -1,0 +1,14 @@
+SLURM_JOB_NAME: test_bg_tags
+SLURM_ARRAY_JOB_ID: 
+SLURM_ARRAY_TASK_ID: 
+SLURM_JOB_ID: 313141
+SLURM_JOB_PARTITION: p.ada
+SLURM_JOB_NODELIST: adag061
+SLURM_MEM_PER_NODE: 
+SLURM_ARRAY_TASK_ID is empty
+SLURM_MY_ID: 313141
+SLURM_CPUS_PER_TASK is not set, using default thread settings
+LD_LIBRARY_PATH: /mpcdf/soft/SLE_15/packages/x86_64/cuda/12.6.1/lib64:/mpcdf/soft/SLE_15/packages/skylake/UCX-GPU/cuda_12.6-12.6.1-gcc_13-13.1.0/1.18.0/lib/ucx:/mpcdf/soft/SLE_15/packages/skylake/UCX-GPU/cuda_12.6-12.6.1-gcc_13-13.1.0/1.18.0/lib:/mpcdf/soft/SLE_15/packages/skylake/UCX/gcc_13-13.1.0/1.18.0/lib/ucx:/mpcdf/soft/SLE_15/packages/skylake/UCX/gcc_13-13.1.0/1.18.0/lib:/mpcdf/soft/SLE_15/packages/x86_64/cuda/12.6.1/lib64:/mpcdf/soft/SLE_15/packages/x86_64/cuda/12.6.1/extras/CUPTI/lib64
+FHI-aims realpath: /ada/u/zklou/projects/aims/250806/installation/bin/aims.250730.hdf5.scalapack.mpi.x
+[Wed Aug  6 05:07:43 PM CEST 2025] Running AIMS at /u/zklou/projects/2508_tbg_epc/tests/tag_output_rs_matrices_h5_250806
+[Wed Aug  6 05:08:16 PM CEST 2025] Finished AIMS at /u/zklou/projects/2508_tbg_epc/tests/tag_output_rs_matrices_h5_250806
