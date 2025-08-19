@@ -1,10 +1,14 @@
-"""FHI-aims real-space matrices parser for output_rs_matrices tag.
+"""FHI-aims matrix parsers for various output tags.
 
-This module provides functionality to parse and process FHI-aims sparse matrix output
-from the output_rs_matrices tag, including Hamiltonian and overlap matrices stored
-in both HDF5 and text formats.
+This module provides functionality to parse and process FHI-aims matrix output from:
+- output_rs_matrices tag: Real-space sparse matrices (Hamiltonian and overlap) stored
+  in both HDF5 and text formats
+- output_h_s_matrices tag: Gamma-point Hamiltonian and overlap matrices stored as
+  coordinate-value pairs in text format
 """
 
+import glob
+import json
 import os
 from typing import Optional
 
@@ -47,12 +51,16 @@ class ParseRSMatrices:
         self,
         aims_dpath: str,
         use_h5: bool = True,
+        use_cache: bool = True,
+        cache_dir: Optional[str] = None,
     ) -> None:
         """Initialize the RS matrices parser.
 
         Args:
             aims_dpath: Path to directory containing FHI-aims output files.
             use_h5: If True, use HDF5 files; if False, use text files.
+            use_cache: If True, enable automatic CSR matrix caching for performance.
+            cache_dir: Directory for cache files. If None, uses aims_dpath.
 
         Raises:
             AssertionError: If the specified directory does not exist.
@@ -60,6 +68,8 @@ class ParseRSMatrices:
         """
         assert os.path.isdir(aims_dpath), f"Directory {aims_dpath} does not exist."
         self.aims_dpath: str = aims_dpath
+        self.use_cache: bool = use_cache
+        self.cache_dir: str = cache_dir if cache_dir is not None else aims_dpath
         self.rs_hamiltonian: Optional[numpy.ndarray] = None
         self.rs_overlap: Optional[numpy.ndarray] = None
         self.matrix_size: Optional[int] = None
@@ -205,6 +215,82 @@ class ParseRSMatrices:
             self.lattice_vectors = numpy.array(atoms.cell, dtype=numpy.float64)  # Shape: (3, 3)
         except Exception as e:
             raise Exception(f"Failed to parse geometry.in using ASE: {e}") from e
+
+    def _generate_cache_filename(self, matrix_type: str, custom_filename: Optional[str] = None) -> str:
+        """Generate cache filename for CSR matrices.
+
+        Args:
+            matrix_type: Either 'hamiltonian' or 'overlap'.
+            custom_filename: Custom filename. If None, generates default name.
+
+        Returns:
+            str: Full path to cache file.
+
+        Raises:
+            ValueError: If matrix_type is not supported.
+        """
+        if matrix_type not in ["hamiltonian", "overlap"]:
+            raise ValueError(f"matrix_type must be 'hamiltonian' or 'overlap', got {matrix_type}")
+
+        if custom_filename is not None:
+            # Use custom filename, ensure .npz extension
+            cache_name = custom_filename if custom_filename.endswith(".npz") else f"{custom_filename}.npz"
+        else:
+            # Generate default filename based on source file
+            source_key = f"rs_{matrix_type}"
+            source_file = self.fnames[source_key]
+            # Remove extension and add _csr.npz
+            base_name = os.path.splitext(source_file)[0]
+            cache_name = f"{base_name}_csr.npz"
+
+        return os.path.join(self.cache_dir, cache_name)
+
+    def _is_cache_valid(self, cache_file: str, source_file: str) -> bool:
+        """Check if cache file is valid (newer than source file).
+
+        Args:
+            cache_file: Path to cache file.
+            source_file: Path to source file.
+
+        Returns:
+            bool: True if cache is valid, False otherwise.
+        """
+        if not os.path.exists(cache_file):
+            return False
+
+        if not os.path.exists(source_file):
+            return False
+
+        cache_mtime = os.path.getmtime(cache_file)
+        source_mtime = os.path.getmtime(source_file)
+
+        return cache_mtime >= source_mtime
+
+    def _load_csr_if_exists(self, cache_file: str, source_file: str) -> Optional[sparse.csr_matrix]:
+        """Load CSR matrix from cache if valid.
+
+        Args:
+            cache_file: Path to cache file.
+            source_file: Path to source file.
+
+        Returns:
+            sparse.csr_matrix or None: Cached matrix if valid, None otherwise.
+        """
+        if not self.use_cache:
+            return None
+
+        if not self._is_cache_valid(cache_file, source_file):
+            return None
+
+        try:
+            return sparse.load_npz(cache_file)
+        except Exception:
+            # Cache file corrupted, remove it
+            try:
+                os.remove(cache_file)
+            except OSError:
+                pass
+            return None
 
     def _calculate_phase_factors(self, k_frac: list) -> numpy.ndarray:
         """Calculate phase factors for Fourier transformation.
@@ -500,14 +586,35 @@ class ParseRSMatrices:
 
         Note:
             Automatically loads the matrix data if not already loaded.
+            Uses caching for improved performance on subsequent calls.
         """
+        # Try to load from cache first
+        if self.use_cache:
+            cache_file = self._generate_cache_filename("hamiltonian")
+            source_file = os.path.join(self.aims_dpath, self.fnames["rs_hamiltonian"])
+            cached_matrix = self._load_csr_if_exists(cache_file, source_file)
+            if cached_matrix is not None:
+                return cached_matrix
+
+        # Load from source if cache miss or disabled
         if self.rs_hamiltonian is None:
             if self.fnames["rs_hamiltonian"].endswith(".h5"):
                 self.load_rs_hamiltonian_h5()
             else:
                 self.load_rs_hamiltonian_txt()
 
-        return self._to_csr_matrix(self.rs_hamiltonian)
+        csr_matrix = self._to_csr_matrix(self.rs_hamiltonian)
+
+        # Auto-save to cache if enabled
+        if self.use_cache:
+            try:
+                os.makedirs(self.cache_dir, exist_ok=True)
+                sparse.save_npz(cache_file, csr_matrix)
+            except Exception:
+                # Cache save failed, continue without caching
+                pass
+
+        return csr_matrix
 
     def get_overlap_csr_U(self) -> sparse.csr_matrix:
         """Get overlap U matrix in CSR sparse format.
@@ -520,14 +627,165 @@ class ParseRSMatrices:
 
         Note:
             Automatically loads the matrix data if not already loaded.
+            Uses caching for improved performance on subsequent calls.
         """
+        # Try to load from cache first
+        if self.use_cache:
+            cache_file = self._generate_cache_filename("overlap")
+            source_file = os.path.join(self.aims_dpath, self.fnames["rs_overlap"])
+            cached_matrix = self._load_csr_if_exists(cache_file, source_file)
+            if cached_matrix is not None:
+                return cached_matrix
+
+        # Load from source if cache miss or disabled
         if self.rs_overlap is None:
             if self.fnames["rs_overlap"].endswith(".h5"):
                 self.load_rs_overlap_h5()
             else:
                 self.load_rs_overlap_txt()
 
-        return self._to_csr_matrix(self.rs_overlap)
+        csr_matrix = self._to_csr_matrix(self.rs_overlap)
+
+        # Auto-save to cache if enabled
+        if self.use_cache:
+            try:
+                os.makedirs(self.cache_dir, exist_ok=True)
+                sparse.save_npz(cache_file, csr_matrix)
+            except Exception:
+                # Cache save failed, continue without caching
+                pass
+
+        return csr_matrix
+
+    def save_hamiltonian_csr(self, filename: Optional[str] = None) -> str:
+        """Save Hamiltonian CSR matrix to cache file.
+
+        Args:
+            filename: Custom cache filename. If None, uses default naming.
+
+        Returns:
+            str: Path to saved cache file.
+
+        Note:
+            Automatically generates CSR matrix if not already available.
+        """
+        cache_file = self._generate_cache_filename("hamiltonian", filename)
+
+        # Ensure cache directory exists
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+        # Get CSR matrix (this will load data if needed)
+        csr_matrix = self.get_hamiltonian_csr_U()
+
+        # Save to cache
+        sparse.save_npz(cache_file, csr_matrix)
+
+        return cache_file
+
+    def save_overlap_csr(self, filename: Optional[str] = None) -> str:
+        """Save overlap CSR matrix to cache file.
+
+        Args:
+            filename: Custom cache filename. If None, uses default naming.
+
+        Returns:
+            str: Path to saved cache file.
+
+        Note:
+            Automatically generates CSR matrix if not already available.
+        """
+        cache_file = self._generate_cache_filename("overlap", filename)
+
+        # Ensure cache directory exists
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+        # Get CSR matrix (this will load data if needed)
+        csr_matrix = self.get_overlap_csr_U()
+
+        # Save to cache
+        sparse.save_npz(cache_file, csr_matrix)
+
+        return cache_file
+
+    def save_csr_matrices(
+        self, hamiltonian_file: Optional[str] = None, overlap_file: Optional[str] = None
+    ) -> tuple[str, str]:
+        """Save both Hamiltonian and overlap CSR matrices to cache files.
+
+        Args:
+            hamiltonian_file: Custom filename for Hamiltonian cache. If None, uses default.
+            overlap_file: Custom filename for overlap cache. If None, uses default.
+
+        Returns:
+            tuple[str, str]: Paths to saved Hamiltonian and overlap cache files.
+
+        Note:
+            Automatically generates CSR matrices if not already available.
+        """
+        h_cache = self.save_hamiltonian_csr(hamiltonian_file)
+        s_cache = self.save_overlap_csr(overlap_file)
+        return h_cache, s_cache
+
+    def clear_cache(self) -> int:
+        """Remove all cached CSR files for this parser instance.
+
+        Returns:
+            int: Number of cache files removed.
+        """
+        removed_count = 0
+
+        # Find all cache files in cache directory
+        cache_pattern = os.path.join(self.cache_dir, "*_csr.npz")
+
+        for cache_file in glob.glob(cache_pattern):
+            try:
+                os.remove(cache_file)
+                removed_count += 1
+            except OSError:
+                pass
+
+        return removed_count
+
+    def get_cache_info(self) -> dict:
+        """Get information about cached CSR files.
+
+        Returns:
+            dict: Information about cache files including paths, sizes, and modification times.
+        """
+        info = {
+            "cache_dir": self.cache_dir,
+            "use_cache": self.use_cache,
+            "hamiltonian_cache": None,
+            "overlap_cache": None,
+        }
+
+        # Check Hamiltonian cache
+        h_cache_file = self._generate_cache_filename("hamiltonian")
+        if os.path.exists(h_cache_file):
+            stat = os.stat(h_cache_file)
+            info["hamiltonian_cache"] = {
+                "path": h_cache_file,
+                "size_bytes": stat.st_size,
+                "modified_time": stat.st_mtime,
+                "exists": True,
+            }
+        else:
+            info["hamiltonian_cache"] = {"exists": False}
+
+        # Check overlap cache
+        s_cache_file = self._generate_cache_filename("overlap")
+        if os.path.exists(s_cache_file):
+            stat = os.stat(s_cache_file)
+            info["overlap_cache"] = {
+                "path": s_cache_file,
+                "size_bytes": stat.st_size,
+                "modified_time": stat.st_mtime,
+                "exists": True,
+            }
+        else:
+            info["overlap_cache"] = {"exists": False}
+
+        return info
 
     def get_hamiltonian_kspace(self, k_frac: list, return_full: bool = True) -> numpy.ndarray:
         """Get Hamiltonian matrix in k-space for given k-point.
@@ -602,3 +860,98 @@ class ParseRSMatrices:
                 k_matrix.T[numpy.triu_indices(k_matrix.shape[0], k=1)]
             )
         return k_matrix
+
+
+class ParseHSMatrices:
+    """Parser for FHI-aims Hamiltonian and overlap matrices from output_h_s_matrices tag.
+
+    This class handles loading and processing of gamma-point Hamiltonian and overlap
+    matrices generated by FHI-aims with the output_h_s_matrices tag. These matrices
+    are stored as coordinate-value pairs in text format (hamiltonian.out and
+    overlap-matrix.out files).
+
+    Example:
+    ```python
+    hs_parser = ParseHSMatrices()
+    hamiltonian = hs_parser.get_gamma_hamiltonian_matrix("path/to/aims/output")
+    overlap = hs_parser.get_gamma_overlap_matrix("path/to/aims/output")
+    ```
+    """
+
+    @classmethod
+    def parse_gamma_matrix(cls, file_path: str, n_basis: Optional[int] = None) -> numpy.ndarray:
+        """Parse gamma-point matrix from FHI-aims output file.
+
+        Parses a matrix stored as coordinate-value triplets (row, column, value)
+        in text format. This is typically used for hamiltonian.out and
+        overlap-matrix.out files generated by the output_h_s_matrices tag.
+
+        Args:
+            file_path: Path to the matrix file (hamiltonian.out or overlap-matrix.out).
+            n_basis: Number of basis functions. If None, auto-determined from file content.
+
+        Returns:
+            numpy.ndarray: Full symmetric matrix of shape (n_basis, n_basis).
+
+        Raises:
+            FileNotFoundError: If the specified file does not exist.
+
+        Note:
+            - Converts from FHI-aims 1-based to Python 0-based indexing
+            - Assumes symmetric matrices and fills both triangular parts
+            - Matrix size is auto-determined from maximum row/column indices if n_basis is None
+            - Uses vectorized NumPy operations for optimal performance
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Matrix file not found: {file_path}")
+
+        # Load the 3-column data: row_idx, col_idx, value
+        data = numpy.loadtxt(file_path)
+
+        # Convert to 0-based indexing (FHI-aims uses 1-based)
+        row_indices = data[:, 0].astype(int) - 1
+        col_indices = data[:, 1].astype(int) - 1
+        values = data[:, 2]
+
+        # Auto-determine matrix size if not provided
+        if n_basis is None:
+            n_basis = max(numpy.max(row_indices), numpy.max(col_indices)) + 1
+
+        # Create full matrix
+        matrix = numpy.zeros((n_basis, n_basis), dtype=numpy.float64)
+
+        # Fill matrix elements using vectorized operations
+        matrix[row_indices, col_indices] = values
+
+        # For symmetric matrices, fill both triangular parts using vectorized operations
+        # Only fill off-diagonal elements (where i != j) to avoid overwriting diagonal
+        off_diagonal_mask = row_indices != col_indices
+        matrix[col_indices[off_diagonal_mask], row_indices[off_diagonal_mask]] = values[off_diagonal_mask]
+
+        return matrix
+
+    @classmethod
+    def get_gamma_hamiltonian_matrix(cls, test_data_dir: str) -> numpy.ndarray:
+        """Get gamma-point Hamiltonian matrix from test data directory.
+
+        Args:
+            test_data_dir: Path to directory containing hamiltonian.out file.
+
+        Returns:
+            numpy.ndarray: Hamiltonian matrix at gamma point.
+        """
+        hamiltonian_file = os.path.join(test_data_dir, "hamiltonian.out")
+        return cls.parse_gamma_matrix(hamiltonian_file)
+
+    @classmethod
+    def get_gamma_overlap_matrix(cls, test_data_dir: str) -> numpy.ndarray:
+        """Get gamma-point overlap matrix from test data directory.
+
+        Args:
+            test_data_dir: Path to directory containing overlap-matrix.out file.
+
+        Returns:
+            numpy.ndarray: Overlap matrix at gamma point.
+        """
+        overlap_file = os.path.join(test_data_dir, "overlap-matrix.out")
+        return cls.parse_gamma_matrix(overlap_file)

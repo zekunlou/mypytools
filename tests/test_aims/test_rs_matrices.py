@@ -5,47 +5,19 @@ Tests the ParseRSMatrices class for loading and processing FHI-aims
 sparse matrix output from the output_rs_matrices tag.
 """
 
+import glob
 import os
+import time
 
 import numpy as np
 import pytest
 from scipy import sparse
 
-from mypytools.aims.rs_matrices import ParseRSMatrices
+from mypytools.aims.load_matrices import ParseHSMatrices, ParseRSMatrices
 
 
 class TestParseRSMatrices:
     """Test class for ParseRSMatrices functionality."""
-
-    def _parse_gamma_reference_matrix(self, file_path: str, n_basis: int = 56) -> np.ndarray:
-        """Parse gamma-point reference matrix from FHI-aims output file.
-
-        Args:
-            file_path: Path to the matrix file (hamiltonian.out or overlap-matrix.out).
-            n_basis: Number of basis functions (default 56).
-
-        Returns:
-            numpy.ndarray: Full symmetric matrix of shape (n_basis, n_basis).
-        """
-        # Load the 3-column data: row_idx, col_idx, value
-        data = np.loadtxt(file_path)
-
-        # Convert to 0-based indexing (FHI-aims uses 1-based)
-        row_indices = data[:, 0].astype(int) - 1
-        col_indices = data[:, 1].astype(int) - 1
-        values = data[:, 2]
-
-        # Create full matrix
-        matrix = np.zeros((n_basis, n_basis), dtype=np.float64)
-
-        # Fill matrix elements
-        for i, j, val in zip(row_indices, col_indices, values):
-            matrix[i, j] = val
-            # For symmetric matrices, fill both upper and lower triangular parts
-            if i != j:
-                matrix[j, i] = val
-
-        return matrix
 
     @pytest.fixture
     def test_data_dir(self):
@@ -60,14 +32,25 @@ class TestParseRSMatrices:
     @pytest.fixture
     def gamma_hamiltonian_ref(self, test_data_dir):
         """Fixture providing reference Hamiltonian matrix at gamma point."""
-        hamiltonian_file = os.path.join(test_data_dir, "hamiltonian.out")
-        return self._parse_gamma_reference_matrix(hamiltonian_file)
+        return ParseHSMatrices.get_gamma_hamiltonian_matrix(test_data_dir)
 
     @pytest.fixture
     def gamma_overlap_ref(self, test_data_dir):
         """Fixture providing reference overlap matrix at gamma point."""
-        overlap_file = os.path.join(test_data_dir, "overlap-matrix.out")
-        return self._parse_gamma_reference_matrix(overlap_file)
+        return ParseHSMatrices.get_gamma_overlap_matrix(test_data_dir)
+
+    @pytest.fixture
+    def clean_cache_files(self, test_data_dir):
+        """Fixture to ensure cache files are cleaned up after tests."""
+        yield
+        # Cleanup - remove ALL .npz files in the specific test directory
+        # This includes both auto-generated (*_csr.npz) and custom filenames
+        cache_pattern = os.path.join(test_data_dir, "*.npz")
+        for cache_file in glob.glob(cache_pattern):
+            try:
+                os.remove(cache_file)
+            except OSError:
+                pass
 
     def test_init_with_valid_directory(self, test_data_dir):
         """Test initialization with valid directory."""
@@ -166,6 +149,7 @@ class TestParseRSMatrices:
     def test_get_hamiltonian_csr_U(self, parser_h5):
         """Test getting Hamiltonian U matrix in CSR sparse format."""
         csr_h = parser_h5.get_hamiltonian_csr_U()
+        dense_h = parser_h5.get_hamiltonian_dense_U()
 
         # Check type and shape
         assert isinstance(csr_h, sparse.csr_matrix)
@@ -181,9 +165,14 @@ class TestParseRSMatrices:
         sparsity = 1 - (csr_h.nnz / total_elements)
         assert sparsity > 0.5  # Should be at least 50% sparse
 
+        # Convert CSR to dense and compare with dense version
+        csr_dense = csr_h.toarray()
+        np.testing.assert_allclose(dense_h, csr_dense, rtol=1e-12, atol=1e-12)
+
     def test_get_overlap_csr_U(self, parser_h5):
         """Test getting overlap U matrix in CSR sparse format."""
         csr_s = parser_h5.get_overlap_csr_U()
+        dense_s = parser_h5.get_overlap_dense_U()
 
         # Check type and shape
         assert isinstance(csr_s, sparse.csr_matrix)
@@ -193,6 +182,10 @@ class TestParseRSMatrices:
 
         # Check that matrix has non-zero elements
         assert csr_s.nnz > 0
+
+        # Convert CSR to dense and compare with dense version
+        csr_dense = csr_s.toarray()
+        np.testing.assert_allclose(dense_s, csr_dense, rtol=1e-12, atol=1e-12)
 
     def test_dense_csr_equivalence(self, parser_h5):
         """Test that dense and CSR U matrix formats give equivalent results."""
@@ -537,3 +530,195 @@ class TestParseRSMatrices:
         # Matrices should be well-conditioned for numerical stability
         assert H_cond < 1e12, f"Hamiltonian is poorly conditioned: {H_cond}"
         assert S_cond < 1e12, f"Overlap matrix is poorly conditioned: {S_cond}"
+
+    # CSR Caching Tests
+    def test_save_hamiltonian_csr(self, test_data_dir, clean_cache_files):
+        """Test saving Hamiltonian CSR matrix to cache."""
+        parser = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+
+        # Save CSR matrix
+        cache_file = parser.save_hamiltonian_csr()
+
+        # Verify file was created
+        assert os.path.exists(cache_file)
+        assert cache_file.endswith("_csr.npz")
+        assert "rs_hamiltonian" in cache_file
+
+        # Verify file can be loaded
+        cached_matrix = sparse.load_npz(cache_file)
+        assert isinstance(cached_matrix, sparse.csr_matrix)
+
+        # Verify shape matches expected
+        n_rows = parser.n_cells * parser.n_basis
+        assert cached_matrix.shape == (n_rows, parser.n_basis)
+
+    def test_save_overlap_csr(self, test_data_dir, clean_cache_files):
+        """Test saving overlap CSR matrix to cache."""
+        parser = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+
+        # Save CSR matrix
+        cache_file = parser.save_overlap_csr()
+
+        # Verify file was created
+        assert os.path.exists(cache_file)
+        assert cache_file.endswith("_csr.npz")
+        assert "rs_overlap" in cache_file
+
+        # Verify file can be loaded
+        cached_matrix = sparse.load_npz(cache_file)
+        assert isinstance(cached_matrix, sparse.csr_matrix)
+
+        # Verify shape matches expected
+        n_rows = parser.n_cells * parser.n_basis
+        assert cached_matrix.shape == (n_rows, parser.n_basis)
+
+    def test_save_csr_matrices(self, test_data_dir, clean_cache_files):
+        """Test saving both CSR matrices at once."""
+        parser = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+
+        # Save both matrices
+        h_cache, s_cache = parser.save_csr_matrices()
+
+        # Verify both files were created
+        assert os.path.exists(h_cache)
+        assert os.path.exists(s_cache)
+        assert h_cache != s_cache
+
+        # Verify files can be loaded
+        h_matrix = sparse.load_npz(h_cache)
+        s_matrix = sparse.load_npz(s_cache)
+        assert isinstance(h_matrix, sparse.csr_matrix)
+        assert isinstance(s_matrix, sparse.csr_matrix)
+
+    def test_csr_save_load_equivalence(self, test_data_dir, clean_cache_files):
+        """Test that matrices are identical after save/load cycle."""
+        parser = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+
+        # Get original CSR matrices
+        original_h = parser.get_hamiltonian_csr_U()
+        original_s = parser.get_overlap_csr_U()
+
+        # Save to cache
+        h_cache, s_cache = parser.save_csr_matrices()
+
+        # Load from cache
+        cached_h = sparse.load_npz(h_cache)
+        cached_s = sparse.load_npz(s_cache)
+
+        # Verify exact equivalence using allclose for sparse matrices
+        np.testing.assert_allclose(original_h.data, cached_h.data, rtol=1e-15, atol=1e-15)
+        np.testing.assert_array_equal(original_h.indices, cached_h.indices)
+        np.testing.assert_array_equal(original_h.indptr, cached_s.indptr)
+
+        np.testing.assert_allclose(original_s.data, cached_s.data, rtol=1e-15, atol=1e-15)
+        np.testing.assert_array_equal(original_s.indices, cached_s.indices)
+        np.testing.assert_array_equal(original_s.indptr, cached_s.indptr)
+
+        # Also test dense conversion equivalence
+        np.testing.assert_allclose(original_h.toarray(), cached_h.toarray(), rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(original_s.toarray(), cached_s.toarray(), rtol=1e-12, atol=1e-12)
+
+    def test_cache_auto_loading(self, test_data_dir, clean_cache_files):
+        """Test automatic cache detection and loading."""
+        # First parser instance - create cache
+        parser1 = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+        original_h = parser1.get_hamiltonian_csr_U()
+        original_s = parser1.get_overlap_csr_U()
+
+        # Get cache info
+        cache_info = parser1.get_cache_info()
+        assert cache_info["hamiltonian_cache"]["exists"]
+        assert cache_info["overlap_cache"]["exists"]
+
+        # Second parser instance - should load from cache
+        parser2 = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+        cached_h = parser2.get_hamiltonian_csr_U()
+        cached_s = parser2.get_overlap_csr_U()
+
+        # Should be identical
+        np.testing.assert_allclose(original_h.toarray(), cached_h.toarray(), rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(original_s.toarray(), cached_s.toarray(), rtol=1e-12, atol=1e-12)
+
+    def test_cache_disabled_behavior(self, test_data_dir, clean_cache_files):
+        """Test behavior when caching is disabled."""
+        parser = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=False)
+
+        # Get matrices - should not create cache
+        h_matrix = parser.get_hamiltonian_csr_U()
+        s_matrix = parser.get_overlap_csr_U()
+
+        # Verify no cache files were created
+        cache_info = parser.get_cache_info()
+        assert not cache_info["use_cache"]
+        assert not cache_info["hamiltonian_cache"]["exists"]
+        assert not cache_info["overlap_cache"]["exists"]
+
+        # Matrices should still work correctly
+        assert isinstance(h_matrix, sparse.csr_matrix)
+        assert isinstance(s_matrix, sparse.csr_matrix)
+
+    def test_custom_cache_filenames(self, test_data_dir, clean_cache_files):
+        """Test user-specified cache filenames."""
+        parser = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+
+        # Save with custom filenames
+        custom_h = "custom_hamiltonian.npz"
+        custom_s = "custom_overlap.npz"
+
+        h_cache = parser.save_hamiltonian_csr(custom_h)
+        s_cache = parser.save_overlap_csr(custom_s)
+
+        # Verify custom filenames are used
+        assert os.path.basename(h_cache) == custom_h
+        assert os.path.basename(s_cache) == custom_s
+        assert os.path.exists(h_cache)
+        assert os.path.exists(s_cache)
+
+    def test_cache_management(self, test_data_dir, clean_cache_files):
+        """Test cache management functions."""
+        parser = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+
+        # Initially no cache
+        cache_info = parser.get_cache_info()
+        assert not cache_info["hamiltonian_cache"]["exists"]
+        assert not cache_info["overlap_cache"]["exists"]
+
+        # Create cache
+        parser.save_csr_matrices()
+
+        # Verify cache exists
+        cache_info = parser.get_cache_info()
+        assert cache_info["hamiltonian_cache"]["exists"]
+        assert cache_info["overlap_cache"]["exists"]
+        assert cache_info["hamiltonian_cache"]["size_bytes"] > 0
+        assert cache_info["overlap_cache"]["size_bytes"] > 0
+
+        # Clear cache
+        removed_count = parser.clear_cache()
+        assert removed_count == 2  # Should remove both files
+
+        # Verify cache cleared
+        cache_info = parser.get_cache_info()
+        assert not cache_info["hamiltonian_cache"]["exists"]
+        assert not cache_info["overlap_cache"]["exists"]
+
+    def test_cache_performance(self, test_data_dir, clean_cache_files):
+        """Test that cache loading provides performance improvement."""
+        parser = ParseRSMatrices(test_data_dir, use_h5=True, use_cache=True)
+
+        # First call - create cache (slow)
+        start_time = time.time()
+        h_matrix1 = parser.get_hamiltonian_csr_U()
+        first_call_time = time.time() - start_time
+
+        # Second call - load from cache (should be faster)
+        start_time = time.time()
+        h_matrix2 = parser.get_hamiltonian_csr_U()
+        second_call_time = time.time() - start_time
+
+        # Cache should be faster (at least 2x faster, but often much more)
+        # Using a conservative threshold to avoid flaky tests
+        assert second_call_time < first_call_time * 0.8
+
+        # Results should be identical
+        np.testing.assert_allclose(h_matrix1.toarray(), h_matrix2.toarray(), rtol=1e-12, atol=1e-12)
