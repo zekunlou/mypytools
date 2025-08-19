@@ -25,7 +25,7 @@ python -m pip install -e .
     - For details, see [here](https://ipython.org/ipython-doc/3/config/extensions/autoreload.html).
 ```python
 %load_ext autoreload
-%autoreload 1  # Reload all modules imported with %aimport every time before executing the Python code typed.
+%autoreload 1
 %aimport [my_module]
 ```
 
