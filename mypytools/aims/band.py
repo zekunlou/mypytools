@@ -9,6 +9,7 @@ from ase.io import read
 # from clims.read_band_data import read_bands
 from clims.read_control import read_control
 
+from mypytools.aims.parse_out import load_chemical_potential
 from mypytools.patch.path import chdir_exec
 
 
@@ -707,7 +708,7 @@ def plot_bands_v2(
     linestyles: List[str] = None,
     plt_kwargs: Union[Dict, List[Dict]] = None,
     first_nkpaths: int = None,
-    shift_method: Union[None, str] = "align_valence_top",
+    shift_method: Union[None, str, float] = "align_valence_top",
     emin: float = None,
     emax: float = None,
     legend_loc="best",
@@ -777,13 +778,16 @@ def plot_bands_v2(
             assert len(plt_kwargs) == len(dpaths)
         else:
             raise ValueError(f"invalid type for kwarg plt_kwargs: {type(plt_kwargs)}")
-    assert shift_method in [
-        None,
-        "align_valence_top",
-        "align_conduct_bottom",
-        "fullfill_valence_gamma",
-        "valence_top_conduct_bottom_mid",
-    ]
+    if isinstance(shift_method, float):
+        pass
+    else:
+        assert shift_method in [
+            None,
+            "align_valence_top",
+            "align_conduct_bottom",
+            "fullfill_valence_gamma",
+            "valence_top_conduct_bottom_mid",
+        ]
     if emin is not None:
         try:
             emin = float(emin)
@@ -848,7 +852,9 @@ def plot_bands_v2(
         assert len(band_data_full) == 1
         band_data_full = band_data_full[0]
 
-        if shift_method is None:
+        if isinstance(shift_method, float):
+            shift = float(shift_method)
+        elif shift_method is None:
             shift = 0.0
         elif shift_method == "align_valence_top":
             """find the valence top"""

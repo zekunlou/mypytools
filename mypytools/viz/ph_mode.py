@@ -1,6 +1,7 @@
 """visualize phonon modes"""
 
 import pickle
+from typing import Union
 
 import numpy
 from ase import Atoms
@@ -179,7 +180,8 @@ def viz_gamma_ph_2d(
     ph_eigvec: numpy.ndarray,
     arrow_scale: float = 10.0,
     ax=None,
-    show_colorbar_title: bool = True,
+    add_cbar: bool = True,
+    show_colorbar_title: Union[bool, str] = True,
 ):
     """
     Visualize gamma point phonon of 2D material.
@@ -194,8 +196,11 @@ def viz_gamma_ph_2d(
         Scaling factor for arrow lengths
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If None, creates new figure
-    show_colorbar_title : bool, default=True
-        Whether to show title for colorbar
+    add_cbar : bool, default=True
+        Whether to add colorbar for z-displacement
+    show_colorbar_title : bool or str, default=True
+        If True, adds default title "Z-displacement (arb.)" to colorbar.
+        If str, uses the string as title. If False, no title is added.
 
     Returns:
     --------
@@ -293,10 +298,15 @@ def viz_gamma_ph_2d(
     )
 
     # Add colorbar
-    cbar = plt.colorbar(quiver, ax=ax, shrink=0.8, pad=0.02)
-    if show_colorbar_title:
-        cbar.set_label("Z-displacement (arb.)", fontsize=11)
-    cbar.ax.tick_params(labelsize=9)
+    if add_cbar:
+        cbar = plt.colorbar(quiver, ax=ax, shrink=0.8, pad=0.02)
+        if isinstance(show_colorbar_title, str):
+            cbar.set_label(show_colorbar_title, fontsize=11)
+        elif show_colorbar_title:
+            cbar.set_label("Z-displacement (arb.)", fontsize=11)
+        else:
+            pass
+        cbar.ax.tick_params(labelsize=9)
 
     # ========== Calculate and Display Amplitude Statistics ==========
     # Use vectorized operations for amplitude calculations

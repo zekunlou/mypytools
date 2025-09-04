@@ -226,6 +226,10 @@ def gen_twisted_bilayer(
             "atoms": Atoms, the twisted bilayer cell
         }
 
+    Notice:
+        The parameter "conj" is not necessarily the real stacking type of the bilayer.
+        It just defines the operation on the upper layer before twisting.
+
     Example:
     ```python
     twisted_bilayer = gen_twisted_bilayer(
@@ -293,6 +297,79 @@ def gen_twisted_bilayer(
     supercell_comb.info["twist_m"] = m
     supercell_comb.info["twist_r"] = r
     return supercell_comb
+
+
+def _align_cell0_by_x_axis(atoms: Atoms):
+    """Align the first lattice vector of the cell to the x-axis.
+
+    Args:
+        atoms: The atoms object to align.
+
+    Returns:
+        A copy of the atoms object with the first lattice vector aligned to the x-axis.
+    """
+    atoms = atoms.copy()
+    cell0 = atoms.cell[0]
+    theta = numpy.arctan(cell0[1] / cell0[0])
+    atoms.rotate(-numpy.degrees(theta), "z", center=(0, 0, 0), rotate_cell=True)
+    return atoms
+
+
+def gen_twisted_bilayer_rigid_v2(
+    cell_prim: Atoms,
+    m: int,
+    r: int,
+    z_dist: float,
+    conj: Union[None, Literal["inv_z", "rot_z"]] = None,
+    wrap: bool = True,
+):
+    """Generate a twisted bilayer structure using rigid rotation.
+
+    Args:
+        cell_prim: Primitive cell structure.
+        m: Integer parameter for twist angle calculation.
+        r: Integer parameter for twist angle calculation.
+        z_dist: Distance between layers in Angstroms.
+        conj: Conjugation type for the upper layer. Options:
+            - None: Upper layer is rotated 180° around z-axis
+            - "inv_z": Inversion with respect to z-axis after rotation
+            - "rot_z": No rotation applied to upper layer
+        wrap: Whether to wrap atoms into the unit cell.
+
+    Returns:
+        Atoms object containing the twisted bilayer structure with twist
+        properties stored in the info dictionary.
+    """
+    assert numpy.allclose(cell_prim.get_cell()[[2, 2, 0, 1], [0, 1, 2, 2]], 0)  # has to be a 2D cell
+    twist_property = get_twist_property(m, r)
+    tmat0 = numpy.diag([1, 1, 1])
+    tmat0[:2, :2] = twist_property["suplat_trans"]
+    tmat1 = numpy.diag([1, 1, 1])
+    tmat1[:2, :2] = tmat0[[1, 0], :][:, [1, 0]]  # rotate the matrix by 180 degrees
+    cell_prim0 = cell_prim.copy()
+    cell_prim1 = cell_prim.copy()
+    if conj is None:  # the upper layer is a copy of the lower layer
+        cell_prim1.rotate(180, "z", center="COU", rotate_cell=False)
+    elif conj == "inv_z":  # inversion w.r.t. z
+        cell_prim1.rotate(180, "z", center="COU", rotate_cell=False)
+        cell_prim1.positions[:, 2] = 2 * numpy.mean(cell_prim1.positions[:, 2]) - cell_prim1.positions[:, 2]
+    elif conj == "rot_z":  # 180 degree rotation w.r.t. z
+        pass
+    supercell0 = make_supercell(cell_prim0, tmat0, wrap=wrap)
+    supercell0.cell[2, 2] = 6 * z_dist if 6 * z_dist > 100 else 100
+    supercell1 = make_supercell(cell_prim1, tmat1, wrap=wrap)
+    supercell1.cell[2, 2] = 6 * z_dist if 6 * z_dist > 100 else 100
+    supercell1.positions[:, 2] += z_dist
+    supercell = _align_cell0_by_x_axis(supercell0) + _align_cell0_by_x_axis(supercell1)
+    supercell.positions[:, 2] -= numpy.mean(supercell.positions[:, 2]) - supercell.cell[2, 2] / 2
+    if wrap:
+        supercell.wrap()
+    supercell.info["twist_angle"] = twist_property["angle"]
+    supercell.info["twist_angle_deg"] = numpy.degrees(twist_property["angle"])
+    supercell.info["tmat"] = twist_property["suplat_trans"]
+    supercell.info["twist_m"] = m
+    supercell.info["twist_r"] = r
+    return supercell
 
 
 def get_rot2D_mat(theta: float):
