@@ -291,6 +291,7 @@ def cal_band_width(
         "band_indexes": band_indexes,
         "band_indexes_all_elec": band_indexes_all_elec,
         "band_width": band_width,
+        "band_fullfill_idx": fullfill_idx,
     }
 
 

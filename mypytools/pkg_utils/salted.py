@@ -144,7 +144,10 @@ class DescriptorManager:
         train_in_atom_global_indexes_tf = numpy.in1d(self.atom_info_train[:, 0], atom_global_indexes)
         dcpt = dcpt_lam0_all[train_in_atom_global_indexes_tf]
         info = self.atom_info_train[train_in_atom_global_indexes_tf]
-        return dcpt, info
+        return {
+            "dcpt": dcpt,
+            "info": info,
+        }
 
     def load_pred(self, atom_global_indexes: Union[int, numpy.ndarray] = None, lam: int = 0):
         """load descriptor of the prediction dataset
@@ -153,7 +156,7 @@ class DescriptorManager:
             lam: lambda index, start from 0
 
         Returns:
-            descriptor: shape (natoms, nfeats)
+            descriptor: shape (natoms, nfeats) if lam=0 else (natoms, lam, nfeats)
             atom_info: shape (natoms, 4)
         """
         if atom_global_indexes is None:
@@ -170,7 +173,10 @@ class DescriptorManager:
                 all_dcpt_idx = info[info[:, 1] == geom_idx][:, 2]
                 dcpt.append(dpct_this_geom_lam[all_dcpt_idx])
         dcpt = numpy.concatenate(dcpt)
-        return dcpt, info
+        return {
+            "dcpt": dcpt,
+            "info": info,
+        }
 
     def load_select(self, lam: int = 0):
         """load descriptor of the selected atoms in training dataset
@@ -190,14 +196,17 @@ class DescriptorManager:
             dcpt = numpy.zeros((len(self.atom_info_select), nfeats))
             for s, dcpt_idx_tf in dcpt_idx_tf_by_spe.items():
                 dcpt[dcpt_idx_tf] = h5_dcpt[f"sparse_descriptors/{s}/{lam}"][:]
-        return dcpt, self.atom_info_select
+        return {
+            "dcpt": dcpt,
+            "info": self.atom_info_select,
+        }
 
     def test_select_correct(self):
         """test the consistency by loading selected descriptor
         from training h5file and selected h5file"""
-        # dcpt1 = self.load_train()[0][self.atom_info_select[:, 0]]  # equivalent
-        dcpt1 = self.load_train(self.atom_info_select[:, 0])[0]  # equivalent
-        dcpt2 = self.load_select()[0]
+        # dcpt1 = self.load_train()['dcpt'][self.atom_info_select[:, 0]]  # equivalent
+        dcpt1 = self.load_train(self.atom_info_select[:, 0])['dcpt']  # equivalent
+        dcpt2 = self.load_select()['dcpt']
         return numpy.allclose(dcpt1, dcpt2)
 
     def check_files_completeness(
