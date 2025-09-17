@@ -16,7 +16,7 @@ from mypytools.mpi import distribute_work
 print = partial(print, flush=True)
 
 
-def main(overlaps_dir: str, save_svd_dir: str, use_mpi: bool = False):
+def main(overlaps_dir: str, save_svd_dir: str, use_mpi: bool = False, skip_finished: bool = False):
     if use_mpi:
         from mpi4py import MPI
 
@@ -53,12 +53,17 @@ def main(overlaps_dir: str, save_svd_dir: str, use_mpi: bool = False):
     comm.barrier()
     for this_index in my_job_indices:
         ovlp_fpath = os.path.join(overlaps_dir, f"{OVERLAP_PREFIX}{this_index}.npy")
+        svd_fpath = os.path.join(save_svd_dir, f"{SVD_PREFIX}{this_index}.npz")
+        if skip_finished:
+            if os.path.exists(svd_fpath):
+                print(f"rank {rank} skipping index={this_index}, svd file exists: {svd_fpath}")
+                continue
         ovlp = numpy.load(ovlp_fpath)
         start_time = time.time()
         U, S, Vh = numpy.linalg.svd(ovlp, full_matrices=True, compute_uv=True, hermitian=True)
         end_time = time.time()
         svd_result = SVDResult(U, S, Vh, end_time - start_time, ovlp_fpath)
-        svd_result.save(os.path.join(save_svd_dir, f"{SVD_PREFIX}{this_index}.npz"))
+        svd_result.save(svd_fpath)
         this_cond_num = S.max() / S.min()
         print(f"rank {rank} finished index={this_index}, time={svd_result.time:.2f}, cond_num={this_cond_num:.5e}")
 
@@ -68,7 +73,8 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, required=True, help="dir to the overlaps matrices")
     parser.add_argument("--output", type=str, required=True, help="dir to store SVD results")
     parser.add_argument("--mpi", "-m", action="store_true", help="run the script with mpi")
+    parser.add_argument("--skip_finished", action="store_true", help="skip already finished files")
 
     args = parser.parse_args()
 
-    main(args.input, args.output, args.mpi)
+    main(args.input, args.output, args.mpi, args.skip_finished)
