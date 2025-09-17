@@ -242,13 +242,17 @@ def find_fullfill_valance_band_idx(band_occupations: numpy.ndarray, nelec: int) 
     assert len(band_occupations.shape) == 2, ValueError(
         f"band_occupations must be 2D, got {len(band_occupations.shape)}"
     )
-    if nelec % 2 == 0:
-        # even number of electrons, no ambiguity
-        return nelec // 2 - 1
-    elif nelec % 2 == 1:
-        return nelec // 2
+    if numpy.allclose(band_occupations[0,0], 1.0):
+        # for the soc case, forced to distinguish spin
+        return nelec - 1
     else:
-        raise ValueError(f"invalid number of electrons {nelec}")
+        if nelec % 2 == 0:
+            # even number of electrons, no ambiguity
+            return nelec // 2 - 1
+        elif nelec % 2 == 1:
+            return nelec // 2
+        else:
+            raise ValueError(f"invalid number of electrons {nelec}")
 
 
 def cal_band_width(
@@ -287,10 +291,12 @@ def cal_band_width(
     band_energies_min = numpy.min(band_energies, axis=0)
     band_energies_max = numpy.max(band_energies, axis=0)
     band_width = band_energies_max - band_energies_min
+    band_width_all_indices = numpy.max(band_energies) - numpy.min(band_energies)
     return {
         "band_indexes": band_indexes,
         "band_indexes_all_elec": band_indexes_all_elec,
         "band_width": band_width,
+        "band_width_all_indices": band_width_all_indices,
         "band_fullfill_idx": fullfill_idx,
     }
 
