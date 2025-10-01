@@ -339,3 +339,15 @@ def find_valid_rmse(fpath: str):
         return eval(m2.group(1))
     else:
         return numpy.nan
+
+def find_valid_rmse_per_structure(fpath: str) -> dict[int, float]:
+    regxp = re.compile(r"(\d+):\s+(\d+\.\d+e[+-]\d+)\s+% RMSE")
+    rmse_per_struct = {}
+    with open(fpath, "r") as f:
+        for line in f:
+            m = regxp.search(line)
+            if m:
+                struct_index = int(m.group(1))
+                rmse = float(m.group(2))
+                rmse_per_struct[struct_index] = rmse
+    return rmse_per_struct
