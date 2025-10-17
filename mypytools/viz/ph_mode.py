@@ -179,6 +179,7 @@ def viz_gamma_ph_2d(
     atoms: Atoms,
     ph_eigvec: numpy.ndarray,
     arrow_scale: float = 10.0,
+    scatter_size: float = 10.0,
     ax=None,
     add_cbar: bool = True,
     show_colorbar_title: Union[bool, str] = True,
@@ -276,7 +277,7 @@ def viz_gamma_ph_2d(
     cmap = plt.cm.coolwarm  # Red-Blue colormap (red=positive, blue=negative)
 
     # ========== Plot Atomic Positions ==========
-    ax.scatter(x, y, s=10, c="darkgray", marker=".", edgecolors=None, alpha=0.8, label="Atoms", zorder=1)
+    ax.scatter(x, y, s=scatter_size, c="darkgray", marker=".", edgecolors=None, alpha=0.8, label="Atoms", zorder=1)
 
     # ========== Visualize Phonon Displacements ==========
     # Plot arrows for in-plane motion, colored by z-displacement

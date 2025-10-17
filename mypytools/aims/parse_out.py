@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Any
 
 import numpy
 
@@ -352,6 +353,166 @@ def verify_kpt_KSeq(aims_task_dpath: str, band_index: int = 1, kpt_index: int = 
         numpy.allclose(bands[kpt_index - 1], e_states.info["state_en"], atol=1e-5),
         numpy.allclose(lhs, rhs, atol=atol),
     )
+
+def parse_parallel_tasks(filepath: str) -> int | None:
+    try:
+        with open(filepath) as f:
+            output_text = f.read()
+    except FileNotFoundError:
+        print(f"Error: File not found at '{filepath}'")
+        return None
+    except Exception as e:
+        print(f"An error occurred while reading the file: {e}")
+        return None
+    match = re.search(r"Using\s+(\d+)\s+parallel tasks", output_text)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def parse_final_paragraph(filepath: str) -> dict[str, Any]:
+    """
+    Parses the final block of an FHI-aims output file.
+
+    This function first checks for the presence of "Have a nice day." to ensure
+    the calculation finished correctly. It then locates the final summary block
+    and extracts information about computational steps, time accounting, and
+    memory usage using regular expressions.
+
+    Args:
+        filepath: The path to the FHI-aims output file.
+
+    Returns:
+        A dictionary containing the parsed data. Returns an empty dictionary
+        if the file is not found, the termination message is not found,
+        or the block cannot be parsed.
+    """
+    try:
+        with open(filepath) as f:
+            output_text = f.read()
+    except FileNotFoundError:
+        print(f"Error: File not found at '{filepath}'")
+        return {}
+    except Exception as e:
+        print(f"An error occurred while reading the file: {e}")
+        return {}
+
+    if "Have a nice day." not in output_text:
+        print("Termination message 'Have a nice day.' not found. Aborting parse.")
+        return {}
+
+    # Find all delimiter lines and get the content between the second to last and the last one
+    delimiters = [
+        m.start() for m in re.finditer("------------------------------------------------------------", output_text)
+    ]
+    if len(delimiters) < 2:
+        return {}
+
+    start_index = delimiters[-2]
+    end_index = delimiters[-1]
+    relevant_block = output_text[start_index:end_index]
+
+    data: dict[str, Any] = {
+        "computational_steps": {},
+        "time_accounting": {},
+        "memory_accounting": {"peak_usage": {}, "largest_allocation": {}},
+    }
+
+    lines = relevant_block.splitlines()
+
+    # Define regex patterns for different lines
+    patterns = {
+        "datetime": re.compile(r"Date\s+:\s+(\d+),\s+Time\s+:\s+([\d.]+)"),
+        "comp_steps": re.compile(
+            r"\|\s+(Number of self-consistency cycles|Number of SCF \(re\)initializations)\s+:\s+(\d+)"
+        ),
+        "time": re.compile(
+            r"\|\s+(Total time|Preparation time|Boundary condition initalization|Grid partitioning|Preloading free-atom quantities on grid|Free-atom superposition energy|Total time for integrations|Total time for solution of K.-S. equations|Total time for density update|Total time for mixing & preconditioning|Total time for Hartree multipole update|Total time for Hartree multipole sum|Total time for total energy evaluation|Total time for scaled ZORA corrections|Total time for band structures, DOS)\s+:\s+([\d.]+)\s+s\s+([\d.]+)\s+s"
+        ),
+        "mem_residual": re.compile(
+            r"\|\s+Residual value for overall tracked memory usage across tasks:\s+([\d.]+)\s+MB"
+        ),
+        "mem_peak_minmax": re.compile(
+            r"\|\s+(Minimum|Maximum):\s+([\d.]+)\s+MB\s+\(on task\s+\d+\s+after allocating\s+(.*?)\)"
+        ),
+        "mem_peak_avg": re.compile(r"\|\s+(Average):\s+([\d.]+)\s+MB"),
+        "mem_largest_minmax": re.compile(r"\|\s+(Minimum|Maximum):\s+([\d.]+)\s+MB\s+\((.*?)\s+on task\s+\d+\)"),
+        "mem_largest_avg": re.compile(r"\|\s+(Average):\s+([\d.]+)\s+MB"),
+    }
+
+    # Flags to distinguish between memory sections
+    in_peak_usage_section = False
+    in_largest_allocation_section = False
+
+    for line in lines:
+        if "Peak values for overall tracked memory usage" in line:
+            in_peak_usage_section = True
+            in_largest_allocation_section = False
+            continue
+        if "Largest tracked array allocation" in line:
+            in_peak_usage_section = False
+            in_largest_allocation_section = True
+            continue
+
+        match = patterns["datetime"].search(line)
+        if match:
+            data["date"] = match.group(1)
+            data["time"] = float(match.group(2))
+            continue
+
+        match = patterns["comp_steps"].search(line)
+        if match:
+            key = match.group(1).strip().lower().replace(" ", "_").replace("(", "").replace(")", "")
+            data["computational_steps"][key] = int(match.group(2))
+            continue
+
+        match = patterns["time"].search(line)
+        if match:
+            key = match.group(1).strip().lower().replace(" ", "_").replace(".-s.", "_s").replace(",", "_")
+            data["time_accounting"][key] = {
+                "max_cpu_time_s": float(match.group(2)),
+                "wall_clock_s": float(match.group(3)),
+            }
+            continue
+
+        match = patterns["mem_residual"].search(line)
+        if match:
+            data["memory_accounting"]["residual_mb"] = float(match.group(1))
+            continue
+
+        if in_peak_usage_section:
+            match = patterns["mem_peak_minmax"].search(line)
+            if match:
+                key = match.group(1).lower()
+                data["memory_accounting"]["peak_usage"][key] = {
+                    "value_mb": float(match.group(2)),
+                    "reason": match.group(3).strip(),
+                }
+                continue
+
+            match = patterns["mem_peak_avg"].search(line)
+            if match:
+                key = match.group(1).lower()
+                data["memory_accounting"]["peak_usage"][key] = {"value_mb": float(match.group(2))}
+                continue
+
+        if in_largest_allocation_section:
+            match = patterns["mem_largest_minmax"].search(line)
+            if match:
+                key = match.group(1).lower()
+                data["memory_accounting"]["largest_allocation"][key] = {
+                    "value_mb": float(match.group(2)),
+                    "array_name": match.group(3).strip(),
+                }
+                continue
+
+            match = patterns["mem_largest_avg"].search(line)
+            if match:
+                key = match.group(1).lower()
+                data["memory_accounting"]["largest_allocation"][key] = {"value_mb": float(match.group(2))}
+                continue
+
+    return data
 
 
 class AIMSOutputManager:
