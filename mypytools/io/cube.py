@@ -236,6 +236,132 @@ def finite_difference_hexagonal_lattice(
     return numpy.stack([grad_x, grad_y], axis=-1)
 
 
+def interpolate_on_triangular_60deg_grid(
+    data_2d: numpy.ndarray, spacing: float, order: int = 3, div: float = 1e-4
+) -> numpy.ndarray:
+    """Compute real-space gradient of 2D data on equilateral triangular lattice using interpolation.
+
+    This function calculates the gradient of data defined on a 60-degree equilateral
+    triangular grid by first computing grid-space derivatives via spline interpolation with periodicity,
+    then transforming to real-space coordinates using the appropriate Jacobian.
+
+    The triangular lattice is assumed to have basis vectors:
+        a1 = spacing * (1, 0)
+        a2 = spacing * (1/2, sqrt(3)/2)
+
+    Args:
+        data_2d: 2D array of shape (N, M) containing data on triangular grid points.
+        spacing: Real-space lattice constant (distance between nearest neighbors).
+        order: Spline interpolation order for derivative estimation. Default is 3
+            (cubic splines). Must be in range 0-5.
+        div: Finite difference step size in grid index units for numerical
+            differentiation. Default is 1e-4.
+
+    Returns:
+        Real-space gradient array of shape (N, M, 2) where the last dimension
+        contains [∂f/∂x, ∂f/∂y] in Cartesian coordinates.
+
+    Notes:
+        - Uses periodic boundary conditions (grid-wrap mode).
+        - The transformation from grid space (i, j) to real space (x, y) is:
+          x = spacing * i
+          y = spacing * (-i/(2*sqrt(3)) + j/sqrt(3))
+        - Derivatives are computed using centered finite differences with
+          high-order spline interpolation for sub-grid accuracy.
+
+    Examples:
+        >>> data = numpy.random.randn(100, 100)
+        >>> grad = interpolate_on_triangular_60deg_grid(data, spacing=1.0)
+        >>> grad.shape
+        (100, 100, 2)
+    """
+    from scipy.ndimage import map_coordinates
+
+    # Create meshgrid of all grid indices
+    grids = numpy.meshgrid(numpy.arange(data_2d.shape[0]), numpy.arange(data_2d.shape[1]), indexing="ij")
+    grids = numpy.stack(grids, axis=-1).reshape(-1, 2)
+
+    # Create displacement vectors for finite differences
+    grids_dx = numpy.zeros([data_2d.size, 2])
+    grids_dy = numpy.zeros([data_2d.size, 2])
+    grids_dx[:, 0] = div
+    grids_dy[:, 1] = div
+
+    # Compute grid-space derivative in i-direction (∂f/∂i)
+    data_grid_grad_x = (
+        map_coordinates(data_2d, (grids + grids_dx).T, order=order, mode="grid-wrap")
+        - map_coordinates(data_2d, (grids - grids_dx).T, order=order, mode="grid-wrap")
+    ) / (2.0 * div)
+    data_grid_grad_x = data_grid_grad_x.reshape(*data_2d.shape)
+
+    # Compute grid-space derivative in j-direction (∂f/∂j)
+    data_grid_grad_y = (
+        map_coordinates(data_2d, (grids + grids_dy).T, order=order, mode="grid-wrap")
+        - map_coordinates(data_2d, (grids - grids_dy).T, order=order, mode="grid-wrap")
+    ) / (2.0 * div)
+    data_grid_grad_y = data_grid_grad_y.reshape(*data_2d.shape)
+
+    # Transform from grid space to real space using Jacobian
+    # Real-space gradient: (∂f/∂x, ∂f/∂y)
+    sqrt_3 = numpy.sqrt(3.0)
+    data_realspace_grad = (
+        numpy.stack((data_grid_grad_x, -data_grid_grad_x / sqrt_3 + 2.0 * data_grid_grad_y / sqrt_3), axis=-1) / spacing
+    )
+
+    return data_realspace_grad
+
+
+def finite_difference_on_triangular_60deg_grid(data_2d: numpy.ndarray, spacing: float) -> numpy.ndarray:
+    """Compute real-space gradient of 2D data on equilateral triangular lattice using finite differences.
+
+    This function calculates the gradient of data defined on a 60-degree equilateral
+    triangular grid using centered finite differences on the grid, then transforms
+    to real-space Cartesian coordinates.
+
+    The triangular lattice is assumed to have basis vectors:
+        a1 = spacing * (1, 0)
+        a2 = spacing * (1/2, sqrt(3)/2)
+
+    Args:
+        data_2d: 2D array of shape (N, M) containing data on triangular grid points.
+        spacing: Real-space lattice constant (distance between nearest neighbors).
+
+    Returns:
+        Real-space gradient array of shape (N, M, 2) where the last dimension
+        contains [∂f/∂x, ∂f/∂y] in Cartesian coordinates.
+
+    Notes:
+        - Uses periodic boundary conditions via numpy.roll.
+        - Finite differences are computed directly on grid indices without interpolation.
+        - More efficient than interpolate_on_triangular_60deg_grid but less accurate
+          for smooth data.
+        - The transformation from grid space (i, j) to real space (x, y) is:
+          x = spacing * i
+          y = spacing * (-i/(2*sqrt(3)) + j/sqrt(3))
+
+    Examples:
+        >>> data = numpy.random.randn(100, 100)
+        >>> grad = finite_difference_on_triangular_60deg_grid(data, spacing=1.0)
+        >>> grad.shape
+        (100, 100, 2)
+    """
+    # Compute centered finite differences in grid-space directions
+    # ∂f/∂i using periodic boundary conditions
+    data_dx = (numpy.roll(data_2d, shift=-1, axis=0) - numpy.roll(data_2d, shift=1, axis=0)) / (2.0 * spacing)
+
+    # ∂f/∂j using periodic boundary conditions
+    data_dy = (numpy.roll(data_2d, shift=-1, axis=1) - numpy.roll(data_2d, shift=1, axis=1)) / (2.0 * spacing)
+
+    # Transform from grid space to real space using Jacobian
+    # Real-space gradient: (∂f/∂x, ∂f/∂y)
+    sqrt_3 = numpy.sqrt(3.0)
+    data_realspace_grad = numpy.stack((data_dx, -data_dx / sqrt_3 + 2.0 * data_dy / sqrt_3), axis=-1)
+
+    return data_realspace_grad
+
+
+
+
 def _create_additional_unit_cells_deprecated(ax, corners, num_x=1, num_y=1, color="r", linestyle="-", alpha=0.5):
     """
     Add additional unit cells to show the periodic nature of the lattice.
