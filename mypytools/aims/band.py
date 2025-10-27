@@ -738,6 +738,9 @@ def plot_bands_v2(
         shift_method (Union[None, str], optional): The method to shift the bands. Defaults to "align_valence_top".
         emin (float, optional): The minimum energy value to plot. Defaults to None.
         emax (float, optional): The maximum energy value to plot. Defaults to None.
+        fermi_lebel (float | None, optional): The fermi level to set zero energy. \
+            If None, do not shift bands. Defaults to 0.0.
+        legend_loc (str, optional): The location of the legend. Defaults to "best".
         ax (optional): The matplotlib axes object to plot on. Defaults to None.
         verbose (bool, optional): Whether to print verbose output. Defaults to False.
 
