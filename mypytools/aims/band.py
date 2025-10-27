@@ -718,6 +718,7 @@ def plot_bands_v2(
     shift_method: Union[None, str, float] = "align_valence_top",
     emin: float = None,
     emax: float = None,
+    fermi_level: float | None = 0.0,
     legend_loc="best",
     ax=None,
     verbose: bool = False,
@@ -951,7 +952,10 @@ def plot_bands_v2(
         first_nkpaths = len(labels) - 1
     # print(labels, first_nkpaths)  # for debug
     ax.set_xlim(labels[0][0], labels[first_nkpaths][0])
-    ax.axhline(0, color="r", linestyle=":")
+    if isinstance(fermi_level, float):
+        ax.axhline(fermi_level, color="r", linestyle=":")
+    else:
+        assert fermi_level is None  # then no Fermi level
 
     return {
         "ax": ax,
