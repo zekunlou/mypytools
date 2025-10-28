@@ -738,7 +738,7 @@ def plot_bands_v2(
         shift_method (Union[None, str], optional): The method to shift the bands. Defaults to "align_valence_top".
         emin (float, optional): The minimum energy value to plot. Defaults to None.
         emax (float, optional): The maximum energy value to plot. Defaults to None.
-        fermi_lebel (float | None, optional): The fermi level to set zero energy. \
+        fermi_level (float | None, optional): a horizontal dashed line to indicate fermi level. \
             If None, do not shift bands. Defaults to 0.0.
         legend_loc (str, optional): The location of the legend. Defaults to "best".
         ax (optional): The matplotlib axes object to plot on. Defaults to None.
@@ -975,6 +975,7 @@ def plot_bands_highlight(
     plt_kwargs_highlight: dict = None,  # for highlighted bands
     shift_method: str = "align_valence_top",
     segment_indices: Optional[list[int]] = None,
+    fermi_level: float | None = 0.0,
     ax=None,
     verbose: bool = False,
 ):
@@ -995,6 +996,8 @@ def plot_bands_highlight(
             "valence_top_conduct_bottom_mid". Defaults to "align_valence_top".
         segment_indices (Optional[list[int]], optional): List of k-path segment indices to plot
             (starting from 1). Defaults to None (all segments).
+        fermi_level (float | None, optional): a horizontal dashed line to indicate fermi level. \
+            If None, do not shift bands. Defaults to 0.0.
         ax (optional): Matplotlib axes object to plot on. Defaults to None.
         verbose (bool, optional): Whether to print verbose output. Defaults to False.
 
@@ -1121,7 +1124,10 @@ def plot_bands_highlight(
 
     ax.set_xticks(tickx, tickl)
     ax.set_xlim(labels[0][0], labels[-1][0])
-    ax.axhline(0, color="r", linestyle=":", alpha=0.7)
+    if isinstance(fermi_level, float):
+        ax.axhline(fermi_level, color="r", linestyle=":", alpha=0.7)
+    else:
+        assert fermi_level is None  # then no Fermi level
 
     # Set energy limits
     if emin is not None and emax is not None:
