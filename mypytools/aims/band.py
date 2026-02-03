@@ -334,6 +334,7 @@ def cal_bands_diff(
     exponent: float = 1.0,
     segment_indexes: Optional[List[int]] = None,
     verbose: bool = False,
+    test: bool = False,
 ):
     """compare band structure differences
     WARNING: only for RESTRICTED case!
@@ -447,32 +448,75 @@ def cal_bands_diff(
     log(f"{shift=}")
 
     """calculate difference"""
-    band_diff = [  # by band segments
-        {
-            "kpath_length": band_info_list[0]["band_segments"][si - 1][2],
-            "kpath_npoints": band_info_list[0]["band_segments"][si - 1][3],
-            "band_diff": numpy.sum(
+    # concatenated all abs diffs, then process globally
+    if test:  # take the second band structure as all zero, and no abs to show band energy level
+        all_abs_diffs = numpy.concatenate(
+            [
+                # numpy.abs(
+                band_info_list[0]["band_data"][si][0]["band_energies"][:, selected_bands_indexes]
+                + shift[0]
+                # )
+                for si in segment_indexes
+            ],
+            axis=0,
+        )
+    else:
+        all_abs_diffs = numpy.concatenate(
+            [
                 numpy.abs(
                     band_info_list[0]["band_data"][si][0]["band_energies"][:, selected_bands_indexes]
                     + shift[0]
                     - band_info_list[1]["band_data"][si][0]["band_energies"][:, selected_bands_indexes]
                     - shift[1]
                 )
-                ** exponent,
-                axis=0,
-            )
-            ** (1 / exponent),  # shape=(n_bands,)
-        }
-        for si in segment_indexes
-    ]
+                for si in segment_indexes
+            ],
+            axis=0,
+        )  # shape=(N_k_total, n_bands)
+
+    total_npoints = sum(band_info_list[0]["band_segments"][si - 1][3] for si in segment_indexes)
+    total_length  = sum(band_info_list[0]["band_segments"][si - 1][2] for si in segment_indexes)
+
+    # Lp mean: ( (1/N) * sum_i |x_i|^p )^(1/p)
+    #   exponent=1 -> MAE;  exponent=2 -> RMS
     if normalize is None:
-        return numpy.sum([bd["band_diff"] for bd in band_diff], axis=0)
+        result = numpy.sum(all_abs_diffs ** exponent, axis=0) ** (1.0 / exponent)
     elif normalize == "length":
-        return numpy.sum([bd["band_diff"] / bd["kpath_length"] for bd in band_diff], axis=0)
+        result = (numpy.sum(all_abs_diffs ** exponent, axis=0) / total_length) ** (1.0 / exponent)
     elif normalize == "points":
-        return numpy.sum([bd["band_diff"] / bd["kpath_npoints"] for bd in band_diff], axis=0)
+        result = (numpy.sum(all_abs_diffs ** exponent, axis=0) / total_npoints) ** (1.0 / exponent)
     else:
         raise ValueError(f"invalid normalize: {normalize}")
+
+    return result  # shape=(n_bands,)
+
+    # """calculate difference"""
+    # band_diff = [  # by band segments
+    #     {
+    #         "kpath_length": band_info_list[0]["band_segments"][si - 1][2],
+    #         "kpath_npoints": band_info_list[0]["band_segments"][si - 1][3],
+    #         "band_diff": numpy.sum(
+    #             numpy.abs(
+    #                 band_info_list[0]["band_data"][si][0]["band_energies"][:, selected_bands_indexes]
+    #                 + shift[0]
+    #                 - band_info_list[1]["band_data"][si][0]["band_energies"][:, selected_bands_indexes]
+    #                 - shift[1]
+    #             )
+    #             ** exponent,
+    #             axis=0,
+    #         )
+    #         ** (1 / exponent),  # shape=(n_bands,)
+    #     }
+    #     for si in segment_indexes
+    # ]
+    # if normalize is None:
+    #     return numpy.sum([bd["band_diff"] for bd in band_diff], axis=0)
+    # elif normalize == "length":
+    #     return numpy.sum([bd["band_diff"] / bd["kpath_length"] for bd in band_diff], axis=0)
+    # elif normalize == "points":
+    #     return numpy.sum([bd["band_diff"] / bd["kpath_npoints"] for bd in band_diff], axis=0)
+    # else:
+    #     raise ValueError(f"invalid normalize: {normalize}")
 
 
 def plot_bands_v1(
