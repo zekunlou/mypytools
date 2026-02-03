@@ -370,6 +370,17 @@ def parse_parallel_tasks(filepath: str) -> int | None:
     return None
 
 
+def find_normal_exit_message(filepath: str) -> bool:
+    try:
+        with open(filepath) as f:
+            output_text = f.read()
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Error: File not found at '{filepath}'")
+    except Exception as e:
+        raise Exception(f"An error occurred while reading the file: {e}")
+    return "Have a nice day." in output_text
+
+
 def parse_final_paragraph(filepath: str) -> dict[str, Any]:
     """
     Parses the final block of an FHI-aims output file.
