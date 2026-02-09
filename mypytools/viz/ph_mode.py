@@ -180,6 +180,7 @@ def viz_gamma_ph_2d(
     ph_eigvec: numpy.ndarray,
     arrow_scale: float = 10.0,
     scatter_size: float = 10.0,
+    colorbar_z_limits: tuple[float, float] = None,
     ax=None,
     add_cbar: bool = True,
     show_colorbar_title: Union[bool, str] = True,
@@ -264,14 +265,17 @@ def viz_gamma_ph_2d(
     ey_scaled = ey * arrow_scale
 
     # ========== Set Up Z-Component Colormap ==========
-    ez_max = numpy.abs(ez).max()
-    if ez_max > 1e-12:  # Avoid numerical issues
-        # Use symmetric range around zero for proper color centering
-        norm = mcolors.Normalize(vmin=-ez_max, vmax=ez_max)
+    if colorbar_z_limits is None:
+        ez_max = numpy.abs(ez).max()
+        if ez_max > 1e-12:  # Avoid numerical issues
+            # Use symmetric range around zero for proper color centering
+            norm = mcolors.Normalize(vmin=-ez_max, vmax=ez_max)
+        else:
+            # Default range if no z motion
+            norm = mcolors.Normalize(vmin=-1, vmax=1)
+            print("Warning: No significant z-displacement detected")
     else:
-        # Default range if no z motion
-        norm = mcolors.Normalize(vmin=-1, vmax=1)
-        print("Warning: No significant z-displacement detected")
+        norm = mcolors.Normalize(vmin=colorbar_z_limits[0], vmax=colorbar_z_limits[1])
 
     # cmap = plt.cm.RdBu_r  # Red-Blue colormap (red=positive, blue=negative)
     cmap = plt.cm.coolwarm  # Red-Blue colormap (red=positive, blue=negative)
