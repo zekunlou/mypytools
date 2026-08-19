@@ -128,6 +128,7 @@ def compute_APR(
     q -> qpoints, n -> bands, N -> natoms, (alpha, beta) -> natoms*xyz
     $e_{q,n}^\alpha$ -> phonon eigenvector for atom alpha at qpoint q and band n, has (x,y,z) components
     """
+    print("WARNING: compute_APR is deprecated, use mypytools.pj_utils.ph_metrics function compute_APR instead")
     nqpoints, natoms3, nbands = ph_eigvecs.shape
     assert natoms3 % 3 == 0, "Number of phonon displacement basis is not a multiple of 3."
     natoms = natoms3 // 3
@@ -195,6 +196,7 @@ def compute_L(
     $$
     """
 
+    print("WARNING: compute_L is deprecated, use mypytools.pj_utils.ph_metrics function compute_L instead")
     # Normalize the ph_eigvec to 1
     ph_eigvec_normed = ph_eigvecs / numpy.linalg.norm(ph_eigvecs, axis=1)[:, None, :]
     nqpoints, natoms3, nbands = ph_eigvecs.shape
@@ -233,6 +235,7 @@ def compute_V(
     so function `compute_V_p2` is recommended over this one.
     """
 
+    print("WARNING: compute_V is deprecated, use mypytools.pj_utils.ph_metrics function compute_V_p1 instead")
     # Normalize the ph_eigvec to 1
     ph_eigvec_normed = ph_eigvecs / numpy.linalg.norm(ph_eigvecs, axis=1)[:, None, :]
     nqpoints, natoms3, nbands = ph_eigvecs.shape
@@ -268,6 +271,7 @@ def compute_V_p2(
     - $V_{q,n} = 0.5$: threshold value (e.g., single atom vibrating 45° from z-axis)
     """
 
+    print("WARNING: compute_V_p2 is deprecated, use mypytools.pj_utils.ph_metrics function compute_V instead")
     # Normalize the ph_eigvec to 1
     ph_eigvec_normed = ph_eigvecs / numpy.linalg.norm(ph_eigvecs, axis=1)[:, None, :]
     nqpoints, natoms3, nbands = ph_eigvecs.shape
