@@ -76,6 +76,7 @@ def generate_phonon_realspace_displacements(
     num_frames: int = 16,
     amp_factor: float = 1.0,
     comment: str = "",
+    reverse_direction: bool = False,
 ) -> list[Atoms]:
     """
     Generate phonon frames for visualization for postprocessing phonopy output for visualization.
@@ -86,6 +87,20 @@ def generate_phonon_realspace_displacements(
     Note:
         The phonon eigenvectors should be like phonopy, i.e. bloch phase applied to each atom but not unit cell.
 
+    Displacement equation (real part of the complex normal-mode solution, c.f. Eq.3.20 in Brueesch and
+    Eq.27 in Togo et al.):
+
+    $$
+    u_{l\\kappa\\alpha}(t) = A \\cdot |z_{l\\kappa\\alpha}| \\cos(\\theta_{l\\kappa\\alpha} - \\omega t),
+    \\quad z_{l\\kappa\\alpha} = \\frac{e_\\alpha(\\kappa|\\mathbf{q})}{\\sqrt{m_\\kappa}}
+    \\exp[i \\mathbf{q} \\cdot \\mathbf{r}_{l\\kappa}],
+    \\quad \\theta_{l\\kappa\\alpha} = \\arg(z_{l\\kappa\\alpha})
+    $$
+
+    where the minus sign in front of \\(\\omega t\\) makes the wave travel along \\(+\\mathbf{q}\\) as
+    time progresses; set `reverse_direction=True` to flip the sign and animate the wave along
+    \\(-\\mathbf{q}\\) instead.
+
     Args:
         atoms (ase.atoms.Atoms): The atomic structure.
         ph_eigvec (numpy.ndarray): Phonon eigenvector, better from phonopy.
@@ -94,13 +109,14 @@ def generate_phonon_realspace_displacements(
         num_frames (int, optional): Number of frames to generate. Defaults to 16.
         amp_factor (float, optional): Amplitude scaling factor. Defaults to 1.0.
         comment (str, optional): Comment to add to each frame. Defaults to "".
+        reverse_direction (bool, optional): If True, animate the wave traveling along -k instead of +k. Defaults to False.
 
     Returns:
         list: List of Atoms objects representing the frames.
 
     Usage:
     ```python
-    atoms = read("structure.xyz")
+    atoms = read("structures.xyz")
     with h5py.File("phonopy.hdf5", "r") as f:  # extract the 0th k-path segment
         ph_kpath_frac = h5["path"][0, :]  # shape (nqpoints, 3)
         ph_freqs = h5["frequency"][0, :]  # shape (nqpoints, nbands)
@@ -117,13 +133,12 @@ def generate_phonon_realspace_displacements(
     write("ph_frames.xyz", ph_frames)
     ```
 
-    TODO:
-        Double check and update the displacement equation
-
     Reference:
-        Eq.27 in A. Togo, L. Chaput, T. Tadano, and I. Tanaka, Implementation strategies in phonopy and phono3py,
+        - Eq.27 in A. Togo, L. Chaput, T. Tadano, and I. Tanaka, Implementation strategies in phonopy and phono3py,
         J. Phys.: Condens. Matter 35, 353001 (2023).
-        Eq.3.20 in Peter Brueesch, Phonons: Theory and Experiments
+            - For the plus R term, the Bloch phase is applied per atomic coordinate.
+        - Eq.3.20 in Peter Brueesch, Phonons: Theory and Experiments
+            - For the -omega*t term, the wave travels along the +k direction as time progresses.
     """
     assert ph_eigvec.ndim == 1, f"ph_eigvec should be a 1D array, but got {ph_eigvec.ndim}D"
     assert ph_eigvec.size == len(atoms) * 3, (
@@ -134,12 +149,13 @@ def generate_phonon_realspace_displacements(
     )
 
     # Generate the supercell
-    supercell_atoms = make_supercell(atoms, supercell)
+    supercell_atoms = make_supercell(atoms, supercell, wrap=False)  # also better that all atoms within the PBC box
     sc_positions = supercell_atoms.get_positions()
 
     # Repeat phonon eigenvector for the supercell
     natoms = len(atoms)
     sc_eigvec = numpy.tile(ph_eigvec.reshape(natoms, 3), (len(supercell_atoms) // natoms, 1))  # shape (n_sc_atoms, xyz)
+    # so please make sure ase is >= 3.22 so that make_supercell(order="cell-major")
 
     # Apply Bloch phase correction for each atom in the supercell
     bloch_phase_factor = numpy.exp(1j * (sc_positions @ k))[:, None]  # shape (n_sc_atoms, 1)
@@ -156,9 +172,10 @@ def generate_phonon_realspace_displacements(
         0, 2 * numpy.pi, num_frames, endpoint=False
     )  # omega*t for one period, dont include endpoint
 
-    # Calculate displacements for each frame
-    ph_disp = ph_amp[None, :] * numpy.sin(
-        ph_phase[None, :] + ph_disp_time[:, None, None]
+    # Calculate displacements for each frame, u = amp * cos(phase -/+ omega*t)
+    time_sign = 1.0 if reverse_direction else -1.0
+    ph_disp = ph_amp[None, :] * numpy.cos(
+        ph_phase[None, :] + time_sign * ph_disp_time[:, None, None]
     )  # shape (n_frames, n_sc_atoms, xyz)
 
     # Generate frames
@@ -166,6 +183,8 @@ def generate_phonon_realspace_displacements(
     for i in range(num_frames):
         this_atoms = supercell_atoms.copy()
         this_atoms.positions = sc_positions + ph_disp[i]
+        this_atoms.info["num_frames"] = num_frames
+        this_atoms.info["frame_idx"] = i
         this_atoms.info["comment"] = comment
         ph_frames.append(this_atoms)
 
@@ -193,7 +212,7 @@ def viz_gamma_ph_2d(
     atoms : ASE Atoms object
         The atomic structure
     ph_eigvec : numpy.ndarray
-        Phonon eigenvectors. Shape should be (n_atoms, 3) or (3*n_atoms,) or (n_atoms, 3, n_modes)
+        Phonon eigenvectors. Shape should be (n_atoms, 3) or (3*n_atoms,)
     arrow_scale : float, default=10.0
         Scaling factor for arrow lengths
     ax : matplotlib.axes.Axes, optional
@@ -214,7 +233,6 @@ def viz_gamma_ph_2d(
     - Shows z-motion as arrow color using RdBu colormap (red=positive, blue=negative)
     - Shows x,y motion as arrows with lengths proportional to displacement
     - Arrow centers are positioned at atom locations
-    - Different colors for atoms at different z-layers
     """
     import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
@@ -250,7 +268,7 @@ def viz_gamma_ph_2d(
     assert numpy.all(numpy.isfinite(eigvec)), "All eigenvector components must be finite"
     assert eigvec.dtype == numpy.float64 or eigvec.dtype == numpy.float32, (
         f"eigvec dtype {eigvec.dtype} must be float64 or float32, got {eigvec.dtype}"
-    )
+    )  # this is intential, since it is for gamma point
 
     # ========== Extract Components Using Vectorization ==========
     x, y, z = positions.T  # Vectorized unumpy.cking
